@@ -135,3 +135,58 @@ class LocalFilesystemStore:
             self.index.upsert(m, str(sd))
             count += 1
         return count
+
+    def _session_disk_bytes(self, session_dir) -> int:
+        total = 0
+        for p in session_dir.rglob("*"):
+            if p.is_file():
+                try:
+                    total += p.stat().st_size
+                except OSError:
+                    continue
+        return total
+
+    def evict(
+        self,
+        *,
+        max_total_disk_mb: int,
+        max_session_age_days: int,
+        now_ns: int,
+    ) -> list[dict]:
+        """Apply age + size eviction. Returns the rows that were deleted.
+
+        Age first: sessions older than max_session_age_days are removed
+        regardless of size (skipping pinned). Then, if total bytes still
+        exceeds max_total_disk_mb, remove oldest non-pinned sessions
+        until under the cap.
+        """
+        removed: list[dict] = []
+        max_age_ns = max_session_age_days * 86_400 * 1_000_000_000
+        for row in self.index.find_evictable(max_age_ns=max_age_ns, now_ns=now_ns):
+            self.delete_session(row["session_id"])
+            removed.append(row)
+
+        cap_bytes = max_total_disk_mb * 1024 * 1024
+        sessions_root = self.root / "sessions"
+        if not sessions_root.exists():
+            return removed
+
+        def total_bytes() -> int:
+            total = 0
+            for sd in sessions_root.iterdir():
+                if sd.is_dir():
+                    total += self._session_disk_bytes(sd)
+            return total
+
+        current = total_bytes()
+        if current <= cap_bytes:
+            return removed
+        for row in self.index.find_evictable(max_age_ns=None, now_ns=now_ns):
+            if current <= cap_bytes:
+                break
+            sd = sessions_root / row["session_id"]
+            size = self._session_disk_bytes(sd) if sd.exists() else 0
+            self.delete_session(row["session_id"])
+            removed.append(row)
+            current -= size
+        return removed
