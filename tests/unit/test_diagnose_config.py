@@ -12,6 +12,9 @@ def test_default_diagnose_config():
     assert c.google_ai_api_key == ""
     assert c.gmi_timeout_s == 10.0
     assert c.gemini_timeout_s == 60.0
+    assert c.openai_model
+    assert c.anthropic_model
+    assert c.ollama_base_url.startswith("http")
 
 
 def test_env_gmi_api_key(monkeypatch):
@@ -48,3 +51,13 @@ def test_env_gmi_base_url(monkeypatch):
     monkeypatch.setenv("GMI_BASE_URL", "https://custom.example/v1")
     c = load_diagnose_config_from_env()
     assert c.gmi_base_url == "https://custom.example/v1"
+
+
+def test_env_openai_and_anthropic(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-o")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-a")
+    monkeypatch.setenv("OLLAMA_MODEL", "mistral")
+    c = load_diagnose_config_from_env()
+    assert c.openai_api_key == "sk-o"
+    assert c.anthropic_api_key == "sk-a"
+    assert c.ollama_model == "mistral"

@@ -10,37 +10,18 @@ Defensive design:
 """
 from __future__ import annotations
 
-import json
 import logging
-import re
 from typing import Any, Optional
 
 from autopsy.core.interceptor import restore_tracing, suppress_tracing
 
 from .config import DiagnoseConfig, load_diagnose_config_from_env
 from .heuristic import diagnose_heuristic
+from .parsing import diagnosis_from_parsed, extract_json
 from .prompts import DIAGNOSIS_SYSTEM_PROMPT, build_diagnosis_user_prompt
 from .types import DiagnosisResult
 
 logger = logging.getLogger("autopsy.diagnostics.gmi")
-
-
-def _extract_json(text: str) -> Optional[dict]:
-    """Try several strategies to extract a JSON object from an LLM response."""
-    if not text:
-        return None
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
-    try:
-        return json.loads(cleaned)
-    except Exception:
-        pass
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except Exception:
-            pass
-    return None
 
 
 class GMIAgent:
@@ -122,31 +103,13 @@ class GMIAgent:
             except Exception:
                 pass
 
-            parsed = _extract_json(raw)
+            parsed = extract_json(raw)
             if not parsed:
                 logger.warning("GMI returned non-JSON response; using heuristic")
                 heuristic.raw_response = raw[:2000]
                 return heuristic
 
-            return DiagnosisResult(
-                root_cause=str(parsed.get("root_cause", heuristic.root_cause))[:1500],
-                affected_node_id=str(parsed.get(
-                    "affected_node_id", heuristic.affected_node_id)),
-                affected_node_name=str(parsed.get(
-                    "affected_node_name", heuristic.affected_node_name)),
-                error_category=str(parsed.get(
-                    "error_category", heuristic.error_category)),
-                fix_suggestion=str(parsed.get(
-                    "fix_suggestion", heuristic.fix_suggestion))[:2000],
-                fix_code_snippet=str(parsed.get("fix_code_snippet", ""))[:3000],
-                confidence=float(parsed.get("confidence", 0.7) or 0.7),
-                latency_insight=str(parsed.get("latency_insight", ""))[:1000],
-                estimated_latency_savings_ms=float(
-                    parsed.get("estimated_latency_savings_ms", 0) or 0),
-                model_swap_suggestion=str(
-                    parsed.get("model_swap_suggestion", ""))[:500],
-                raw_response=raw[:4000],
-            )
+            return diagnosis_from_parsed(parsed, heuristic, raw=raw)
         except Exception:
             logger.exception("autopsy: GMI diagnose failed; using heuristic")
             return heuristic

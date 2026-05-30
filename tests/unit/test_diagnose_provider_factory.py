@@ -38,10 +38,36 @@ def test_resolve_gemini_without_key_falls_back():
 
 
 def test_resolve_auto_small_bundle_uses_gmi_path():
-    cfg = DiagnoseConfig(gmi_api_key="sk-test")
+    cfg = DiagnoseConfig(gmi_api_key="sk-test", openai_api_key="")
     bundle = {"events": [{"event_type": "node_start", "node_id": "x"}]}
     provider = resolve_diagnose_provider(cfg, model_choice="auto", bundle=bundle)
     assert provider.name == "gmi"
+
+
+def test_resolve_openai_with_key():
+    cfg = DiagnoseConfig(openai_api_key="sk-openai")
+    provider = resolve_diagnose_provider(cfg, model_choice="openai")
+    assert provider.name == "openai"
+
+
+def test_resolve_anthropic_without_key_falls_back():
+    provider = resolve_diagnose_provider(
+        DiagnoseConfig(anthropic_api_key=""),
+        model_choice="anthropic",
+    )
+    assert isinstance(provider, HeuristicProvider)
+
+
+def test_resolve_ollama_explicit():
+    provider = resolve_diagnose_provider(DiagnoseConfig(), model_choice="ollama")
+    assert provider.name == "ollama"
+
+
+def test_resolve_auto_prefers_openai_when_configured():
+    cfg = DiagnoseConfig(openai_api_key="sk-openai", gmi_api_key="sk-gmi")
+    bundle = {"events": [{"event_type": "node_start", "node_id": "x"}]}
+    provider = resolve_diagnose_provider(cfg, model_choice="auto", bundle=bundle)
+    assert provider.name == "openai"
 
 
 def test_resolve_auto_large_bundle_uses_gemini_path():
@@ -58,6 +84,7 @@ def test_resolve_auto_large_bundle_uses_gemini_path():
 def test_resolve_auto_respects_token_threshold():
     cfg = DiagnoseConfig(
         gmi_api_key="sk-test",
+        openai_api_key="",
         auto_token_threshold=1_000_000,
     )
     big_events = [{"event_type": "log", "message": "x" * 500}] * 10

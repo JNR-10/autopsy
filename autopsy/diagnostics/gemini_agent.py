@@ -9,8 +9,8 @@ import logging
 from typing import Any, Optional
 
 from .config import DiagnoseConfig, load_diagnose_config_from_env
-from .gmi_agent import _extract_json
 from .heuristic import diagnose_heuristic
+from .parsing import diagnosis_from_parsed, extract_json
 from .prompts import DIAGNOSIS_SYSTEM_PROMPT, build_diagnosis_user_prompt
 from .types import DiagnosisResult
 
@@ -63,29 +63,11 @@ class GeminiAgent:
                 ),
             )
             raw = resp.text or ""
-            parsed = _extract_json(raw)
+            parsed = extract_json(raw)
             if not parsed:
                 heuristic.raw_response = raw[:2000]
                 return heuristic
-            return DiagnosisResult(
-                root_cause=str(parsed.get("root_cause", heuristic.root_cause))[:1500],
-                affected_node_id=str(parsed.get(
-                    "affected_node_id", heuristic.affected_node_id)),
-                affected_node_name=str(parsed.get(
-                    "affected_node_name", heuristic.affected_node_name)),
-                error_category=str(parsed.get(
-                    "error_category", heuristic.error_category)),
-                fix_suggestion=str(parsed.get(
-                    "fix_suggestion", heuristic.fix_suggestion))[:2000],
-                fix_code_snippet=str(parsed.get("fix_code_snippet", ""))[:3000],
-                confidence=float(parsed.get("confidence", 0.7) or 0.7),
-                latency_insight=str(parsed.get("latency_insight", ""))[:1000],
-                estimated_latency_savings_ms=float(
-                    parsed.get("estimated_latency_savings_ms", 0) or 0),
-                model_swap_suggestion=str(
-                    parsed.get("model_swap_suggestion", ""))[:500],
-                raw_response=raw[:4000],
-            )
+            return diagnosis_from_parsed(parsed, heuristic, raw=raw)
         except Exception:
             logger.exception("autopsy: Gemini diagnose failed; using heuristic")
             return heuristic
