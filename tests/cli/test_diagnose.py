@@ -24,6 +24,8 @@ DIAGNOSE_JSON_KEYS = frozenset({
 
 
 class _FakeAgent:
+    name = "fake"
+
     async def diagnose(self, bundle, node_id=None):
         return DiagnosisResult(
             root_cause="mock root cause",

@@ -267,16 +267,10 @@ def cmd_show(session_id: str, as_json: bool, show_events: bool) -> None:
 
 
 def _make_diagnose_agent(model: str, bundle: dict):
-    """Pick GMI vs Gemini agent (overridable in tests)."""
-    from autopsy.diagnostics.gemini_agent import GeminiAgent, estimate_bundle_tokens
-    from autopsy.diagnostics.gmi_agent import GMIAgent
+    """Pick diagnose provider (overridable in tests)."""
+    from autopsy.diagnostics.provider import resolve_diagnose_provider
 
-    if model == "gemini":
-        return GeminiAgent()
-    if model == "gmi":
-        return GMIAgent()
-    est = estimate_bundle_tokens(bundle)
-    return GeminiAgent() if est > 32_000 else GMIAgent()
+    return resolve_diagnose_provider(model_choice=model, bundle=bundle)
 
 
 @cli.command("diagnose")
@@ -298,7 +292,7 @@ def cmd_diagnose(session_id: str, node_id: str, model: str, as_json: bool) -> No
 
     agent = _make_diagnose_agent(model, bundle)
     if not as_json:
-        console.print(f"[dim]Diagnosing with {type(agent).__name__}...[/dim]")
+        console.print(f"[dim]Diagnosing with {agent.name}...[/dim]")
     result = asyncio.run(agent.diagnose(bundle, node_id))
     if as_json:
         click.echo(diagnosis_result_json(result))

@@ -147,21 +147,15 @@ def create_app() -> FastAPI:
         if bundle is None:
             raise HTTPException(status_code=404, detail="session not found")
         try:
-            from autopsy.diagnostics.gemini_agent import (
-                GeminiAgent,
-                estimate_bundle_tokens,
-            )
-            from autopsy.diagnostics.gmi_agent import GMIAgent
+            from autopsy.diagnostics.config import load_diagnose_config_from_env
+            from autopsy.diagnostics.provider import resolve_diagnose_provider
 
-            force = (req.force_model or "").lower()
-            if force == "gemini":
-                agent = GeminiAgent()
-            elif force == "gmi":
-                agent = GMIAgent()
-            else:
-                est = estimate_bundle_tokens(bundle)
-                agent = GeminiAgent() if est > 32_000 else GMIAgent()
-            result = await agent.diagnose(bundle, req.node_id)
+            provider = resolve_diagnose_provider(
+                load_diagnose_config_from_env(),
+                model_choice=req.force_model or "auto",
+                bundle=bundle,
+            )
+            result = await provider.diagnose(bundle, req.node_id)
             return JSONResponse(asdict(result))
         except Exception:
             logger.exception("diagnose route failed")
