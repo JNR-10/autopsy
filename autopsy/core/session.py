@@ -16,6 +16,7 @@ import logging
 import random
 import threading
 import time
+from collections import deque
 from typing import Optional
 
 from .config import LensConfig
@@ -107,6 +108,31 @@ class Session:
         self._config = config
         self.start_perf_ns = start_perf_ns
         self._wall_ns = wall_ns
+        self._capture: deque[BaseEvent] = deque()
+        self._capture_bytes: int = 0
+
+    def capture_events(self) -> list[BaseEvent]:
+        return list(self._capture)
+
+    def _append_capture(self, ev: BaseEvent) -> None:
+        self._capture.append(ev)
+        try:
+            self._capture_bytes += len(ev.model_dump_json())
+        except Exception:
+            pass
+        max_events = self._config.max_capture_buffer_events
+        max_bytes = self._config.max_capture_buffer_bytes
+        while len(self._capture) > max_events or self._capture_bytes > max_bytes:
+            if len(self._capture) <= 1:
+                break
+            old = self._capture.popleft()
+            try:
+                self._capture_bytes -= len(old.model_dump_json())
+            except Exception:
+                self._capture_bytes = max(0, self._capture_bytes - 1)
+
+    def _must_keep(self) -> bool:
+        return self.sample is SampleMode.ALL or self.head_keep
 
     def _activate_writer(self) -> Writer:
         if self.writer is not None:
@@ -169,19 +195,53 @@ class Session:
                     ev = ev.model_copy(update={"session_id": self.session_id})
                 except Exception:
                     return
+            self._append_capture(ev)
             w = self.writer
             if w is None:
-                if self.sample is SampleMode.ERRORS and ev.kind is not EventKind.ERROR:
-                    return
-                w = self._activate_writer()
+                if ev.kind is EventKind.ERROR:
+                    w = self._activate_writer()
+                    w.enqueue(ev)
+                return
             w.enqueue(ev)
         except Exception:
             logger.exception("autopsy: record_event failed")
 
     def end(self, *, outcome: str, error_type: str | None = None) -> None:
-        if self.writer is None:
-            return
         try:
-            self.writer.end_session(self.session_id, outcome=outcome, error_type=error_type)
+            from autopsy.detectors.registry import resolve_enabled
+            from autopsy.detectors.runner import run_detectors
+
+            verdicts = []
+            if self._config.enabled_detectors:
+                verdicts = run_detectors(
+                    events=self.capture_events(),
+                    outcome=outcome,
+                    session_id=self.session_id,
+                    trace_id=self.session_id,
+                    parent_id=None,
+                    detectors=resolve_enabled(self._config),
+                )
+            fails = [v for v in verdicts if v.verdict == "fail"]
+            if fails:
+                outcome = "error"
+                error_type = error_type or f"detector:{fails[0].detector_name}"
+
+            should_finalize = bool(fails) or self.writer is not None or self._must_keep()
+            if should_finalize:
+                if fails:
+                    w = self.writer
+                    if w is None:
+                        w = self._activate_writer()
+                        for ev in self._capture:
+                            w.enqueue(ev)
+                    for v in verdicts:
+                        w.enqueue(v)
+                w = self.writer
+                if w is not None:
+                    w.end_session(
+                        self.session_id, outcome=outcome, error_type=error_type,
+                    )
+            self._capture.clear()
+            self._capture_bytes = 0
         except Exception:
-            logger.exception("autopsy: end_session failed")
+            logger.exception("autopsy: end failed")
