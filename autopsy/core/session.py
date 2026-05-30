@@ -110,6 +110,7 @@ class Session:
         self._wall_ns = wall_ns
         self._capture: deque[BaseEvent] = deque()
         self._capture_bytes: int = 0
+        self._detectors: list[str] | None = None
 
     def capture_events(self) -> list[BaseEvent]:
         return list(self._capture)
@@ -161,6 +162,7 @@ class Session:
         agent_name: str,
         sample,
         writer: Writer | None = None,
+        detectors: list[str] | None = None,
     ) -> "Session":
         mode, head_keep = _resolve_sample(sample, config.default_sample)
         sid = new_ulid()
@@ -182,11 +184,13 @@ class Session:
                 )
             except Exception:
                 logger.exception("autopsy: declare_session failed")
-        return cls(
+        sess = cls(
             session_id=sid, agent_name=agent_name, sample=mode,
             head_keep=head_keep, writer=w, config=config,
             start_perf_ns=now_perf, wall_ns=wall,
         )
+        sess._detectors = detectors
+        return sess
 
     def record_event(self, ev: BaseEvent) -> None:
         try:
@@ -212,15 +216,27 @@ class Session:
             from autopsy.detectors.runner import run_detectors
 
             verdicts = []
-            if self._config.enabled_detectors:
-                verdicts = run_detectors(
-                    events=self.capture_events(),
-                    outcome=outcome,
-                    session_id=self.session_id,
-                    trace_id=self.session_id,
-                    parent_id=None,
-                    detectors=resolve_enabled(self._config),
-                )
+            if self._detectors is not None:
+                enabled = self._detectors
+            else:
+                enabled = self._config.enabled_detectors
+            if enabled:
+                saved: list[str] | None = None
+                if self._detectors is not None:
+                    saved = self._config.enabled_detectors
+                    self._config.enabled_detectors = list(self._detectors)
+                try:
+                    verdicts = run_detectors(
+                        events=self.capture_events(),
+                        outcome=outcome,
+                        session_id=self.session_id,
+                        trace_id=self.session_id,
+                        parent_id=None,
+                        detectors=resolve_enabled(self._config),
+                    )
+                finally:
+                    if saved is not None:
+                        self._config.enabled_detectors = saved
             fails = [v for v in verdicts if v.verdict == "fail"]
             if fails:
                 outcome = "error"
