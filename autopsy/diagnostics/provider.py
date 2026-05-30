@@ -44,9 +44,9 @@ def _gemini_provider(config: DiagnoseConfig) -> DiagnoseProvider:
     if not config.google_ai_api_key:
         return _heuristic_fallback("GOOGLE_AI_API_KEY not set")
     try:
-        import google.generativeai  # noqa: F401
+        from google import genai  # noqa: F401
     except ImportError:
-        return _heuristic_fallback("google-generativeai package not installed")
+        return _heuristic_fallback("google-genai package not installed")
     from .gemini_agent import GeminiAgent
 
     return GeminiAgent(config=config)

@@ -1,11 +1,10 @@
 """GeminiAgent - used when traces exceed ~32k tokens.
 
-Uses Google's google-generativeai SDK. Always falls back to the heuristic
+Uses Google's google-genai SDK. Always falls back to the heuristic
 diagnosis if the API is unavailable.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Optional
 
@@ -43,29 +42,27 @@ class GeminiAgent:
             logger.warning("autopsy: GOOGLE_AI_API_KEY not set; using heuristic")
             return heuristic
         try:
-            import google.generativeai as genai
+            from google import genai
+            from google.genai import types
         except ImportError:
-            logger.warning(
-                "autopsy: google-generativeai not installed; using heuristic"
-            )
+            logger.warning("autopsy: google-genai not installed; using heuristic")
             return heuristic
         try:
-            genai.configure(api_key=self.api_key)
-            model = genai.GenerativeModel(
-                model_name=self.model,
-                system_instruction=DIAGNOSIS_SYSTEM_PROMPT,
+            client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(timeout=self.timeout),
             )
             user_prompt = build_diagnosis_user_prompt(bundle, target_node_id)
-            resp = await asyncio.to_thread(
-                model.generate_content,
-                user_prompt,
-                generation_config={"temperature": 0.2, "max_output_tokens": 900},
+            resp = await client.aio.models.generate_content(
+                model=self.model,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=DIAGNOSIS_SYSTEM_PROMPT,
+                    temperature=0.2,
+                    max_output_tokens=900,
+                ),
             )
-            raw = ""
-            try:
-                raw = resp.text or ""
-            except Exception:
-                pass
+            raw = resp.text or ""
             parsed = _extract_json(raw)
             if not parsed:
                 heuristic.raw_response = raw[:2000]
