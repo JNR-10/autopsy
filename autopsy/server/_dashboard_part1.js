@@ -176,11 +176,16 @@ function renderSessions() {
     const time = isNaN(dt) ? "" : dt.toLocaleTimeString();
     const active = s.session_id === state.activeSessionId ? " active" : "";
     const isLive = s.session_id === state.liveSessionId;
-    const status = isLive ? "running" : (s.status || "unknown");
+    const summary = s.summary || {};
+    const status = isLive ? "running" : (s.status || summary.status || "unknown");
+    const nodeCount = s.node_count ?? summary.node_count ?? 0;
+    const errorCount = s.error_count ?? summary.error_count ?? 0;
     const liveBadge = isLive ? ' <span class="live-badge">LIVE</span>' : '';
+    const det = detectorLabel(s);
+    const detBadge = det ? ` · <span class="badge err">${escapeHtml(det)}</span>` : "";
     return `<div class="session${active}${isLive ? ' live' : ''}" data-id="${s.session_id}">
       <div class="name"><span class="status ${status}"></span>${escapeHtml(s.agent_name || "agent")}${liveBadge}</div>
-      <div class="meta">${time} · ${s.node_count || 0} nodes · ${s.error_count || 0} errors</div>
+      <div class="meta">${time} · ${nodeCount} nodes · ${errorCount} errors${detBadge}</div>
     </div>`;
   }).join("");
   $$(".session", root).forEach(el => {
@@ -221,4 +226,42 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
   }[c]));
+}
+
+function extractDetectorVerdicts(bundle) {
+  const verdicts = [];
+  const seen = new Set();
+  for (const ev of bundle.events || []) {
+    const kind = ev.kind || ev.event_type || "";
+    if (kind === "detector_verdict") {
+      const name = String(ev.detector_name || "");
+      const verdict = String(ev.verdict || "");
+      const reason = String(ev.reason || "");
+      const key = `${name}|${verdict}|${reason}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        verdicts.push({ name, verdict, reason });
+      }
+    } else if (ev.event_type === "node_error") {
+      const errorType = ev.error_type || "";
+      if (String(errorType).startsWith("detector:")) {
+        const name = errorType.slice("detector:".length);
+        const reason = String(ev.error_message || "");
+        const key = `${name}|fail|${reason}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          verdicts.push({ name, verdict: "fail", reason });
+        }
+      }
+    }
+  }
+  return verdicts;
+}
+
+function detectorLabel(sessionRow) {
+  const errorType = sessionRow.error_type
+    || (sessionRow.summary && sessionRow.summary.error_type)
+    || "";
+  if (!String(errorType).startsWith("detector:")) return "";
+  return errorType.slice("detector:".length) || "detector";
 }

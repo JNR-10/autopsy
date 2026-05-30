@@ -104,6 +104,16 @@ function renderCenter() {
     <div class="stat"><div class="label">Duration</div>
       <div class="value">${Math.round(s.total_duration_ms || 0)}ms</div></div>
   </div>`;
+  const verdicts = extractDetectorVerdicts(bundle);
+  if (verdicts.length) {
+    html += `<h2 style="margin-top:14px;">Detector verdicts</h2>`;
+    html += `<div class="diag-card">${verdicts.map(v => `
+      <div style="margin-bottom:8px;">
+        <span class="badge ${v.verdict === "fail" ? "err" : ""}">${escapeHtml(v.name)}</span>
+        <span class="badge">${escapeHtml(v.verdict)}</span>
+        <div style="margin-top:4px;color:var(--muted);font-size:12px;">${escapeHtml(v.reason)}</div>
+      </div>`).join("")}</div>`;
+  }
   html += `<h2>Execution graph</h2><div class="dag" id="dag"></div>`;
   html += `<h2 style="margin-top:18px;">Latency breakdown</h2>`;
   html += `<div class="latency-bars" id="latency"></div>`;

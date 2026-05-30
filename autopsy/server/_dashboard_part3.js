@@ -83,7 +83,7 @@ function renderDetail() {
     }
   } else if (state.activeTab === "diag") {
     if (state.diagnosisLoading) {
-      html += `<div class="empty">🔍 Diagnosing... GMI Cloud is thinking.</div>`;
+      html += `<div class="empty">🔍 Diagnosing...</div>`;
     } else if (state.diagnosis) {
       html += renderDiagnosis(state.diagnosis);
     } else {
