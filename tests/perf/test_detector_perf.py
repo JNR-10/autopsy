@@ -1,6 +1,8 @@
 """Session-end detector evaluation must stay under 2 ms p99."""
 from __future__ import annotations
 
+import pytest
+
 from autopsy.core.config import LensConfig
 from autopsy.core.events import EventKind, LogEvent
 from autopsy.detectors.registry import resolve_enabled
@@ -9,6 +11,7 @@ from autopsy.detectors.runner import run_detectors
 from tests.perf.harness import measure_overhead_ms
 
 
+@pytest.mark.slow
 def test_run_detectors_p99_under_2ms():
     cfg = LensConfig()
     events = [

@@ -46,7 +46,7 @@ autopsy = "autopsy.cli.main:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["autopsy", "autopsy.core", "autopsy.diagnostics",
-           "autopsy.server", "autopsy.cli", "autopsy.deploy"]
+           "autopsy.server", "autopsy.cli"]
 exclude = ["autopsy.server.static*", "autopsy.server.routes*"]
 
 [tool.setuptools.package-data]
