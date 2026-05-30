@@ -19,16 +19,19 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from autopsy import __version__
 from autopsy.core.compat import LegacyBundleReader
 from autopsy.core.config import default_session_dir
 from autopsy.core.replay import ReplayEngine
+
+from .sessions import filesystem_store, is_live_session_row, store_root
 
 from .static_fallback import FALLBACK_HTML, FALLBACK_JS
 from .ws_manager import ws_manager
 
 logger = logging.getLogger("autopsy.server")
 
-VERSION = "0.1.0"
+VERSION = __version__
 
 
 def _session_dir() -> Path:
@@ -36,9 +39,7 @@ def _session_dir() -> Path:
 
 
 def _bundle_reader() -> LegacyBundleReader:
-    sd = _session_dir()
-    root = sd.parent if sd.name == "sessions" else sd
-    return LegacyBundleReader(root=root)
+    return LegacyBundleReader(root=store_root())
 
 
 class DiagnoseRequest(BaseModel):
@@ -184,71 +185,36 @@ def create_app() -> FastAPI:
 
     @app.delete("/api/sessions")
     async def delete_all_sessions(keep_live: int = 0) -> JSONResponse:
-        """Bulk-delete sessions to clean up noisy sidebars in demos.
-
-        Query params:
-          keep_live=1 -> preserve sessions whose status is "running"
-        """
-        sd = _session_dir()
+        """Bulk-delete sessions. keep_live=1 preserves live/running sessions."""
+        store = filesystem_store()
         deleted = 0
-        for p in sd.glob("*.json"):
-            if p.name == "sessions_index.json":
+        for row in list(store.list_sessions()):
+            if keep_live and is_live_session_row(row):
                 continue
+            store.delete_session(row["session_id"])
+            deleted += 1
+        sd = _session_dir()
+        for entry in list(sd.iterdir()):
             try:
-                if keep_live:
-                    try:
-                        bundle = json.loads(p.read_text())
-                        if (bundle.get("summary") or {}).get("status") == "running":
-                            continue
-                    except Exception:
-                        pass
-                p.unlink()
-                deleted += 1
+                if entry.is_file() and entry.suffix == ".json":
+                    if entry.name.startswith("sessions_index"):
+                        continue
+                    entry.unlink(missing_ok=True)
+                    deleted += 1
             except Exception:
-                logger.exception("delete failed for %s", p)
-        # Rebuild index from remaining files (simpler than surgical updates).
-        index_path = sd / "sessions_index.json"
-        try:
-            remaining = []
-            for p in sd.glob("*.json"):
-                if p.name == "sessions_index.json":
-                    continue
-                try:
-                    b = json.loads(p.read_text())
-                    remaining.append({
-                        "session_id": b.get("session_id"),
-                        "agent_name": b.get("agent_name"),
-                        "created_at": (b.get("events") or [{}])[0].get("timestamp", 0),
-                        "status": (b.get("summary") or {}).get("status", "unknown"),
-                        "error_count": (b.get("summary") or {}).get("error_count", 0),
-                        "node_count": (b.get("summary") or {}).get("node_count", 0),
-                        "input_query": b.get("input_query", ""),
-                    })
-                except Exception:
-                    pass
-            index_path.write_text(json.dumps(remaining))
-        except Exception:
-            logger.exception("rebuilding session index failed")
+                logger.exception("delete failed for legacy blob %s", entry)
         return JSONResponse({"deleted": deleted})
 
     @app.delete("/api/sessions/{session_id}")
     async def delete_session(session_id: str) -> JSONResponse:
+        store = filesystem_store()
         sd = _session_dir()
-        path = sd / f"{session_id}.json"
-        existed = path.exists()
+        existed = (sd / session_id).is_dir() or (sd / f"{session_id}.json").exists()
         try:
-            if existed:
-                path.unlink()
-            # Update the index.
-            index_path = sd / "sessions_index.json"
-            if index_path.exists():
-                try:
-                    data = json.loads(index_path.read_text())
-                    if isinstance(data, list):
-                        data = [e for e in data if e.get("session_id") != session_id]
-                        index_path.write_text(json.dumps(data))
-                except Exception:
-                    pass
+            store.delete_session(session_id)
+            legacy = sd / f"{session_id}.json"
+            if legacy.exists():
+                legacy.unlink()
         except Exception:
             logger.exception("delete_session failed")
         return JSONResponse({"deleted": existed})

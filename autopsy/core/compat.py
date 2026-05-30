@@ -222,16 +222,25 @@ class LegacyBundleReader:
                     continue
                 if int(manifest.get("autopsy_format_version", 1)) != 1:
                     continue
+                manifest_status = manifest.get("status", "")
+                mapped_status = {
+                    "ok": "success", "error": "error",
+                    "partial": "partial", "live": "running",
+                }.get(manifest_status, "unknown")
+                error_type = manifest.get("error_type") or ""
                 out.append({
                     "session_id": manifest.get("session_id", child.name),
                     "agent_name": manifest.get("agent_name", ""),
                     "created_at": manifest.get("start_time_ns", 0) / 1e9,
+                    "status": mapped_status,
+                    "node_count": manifest.get("event_count", 0),
+                    "error_count": 1 if manifest_status == "error" else 0,
+                    "error_type": error_type,
                     "summary": {
-                        "status": {
-                            "ok": "success", "error": "error",
-                            "partial": "partial", "live": "partial",
-                        }.get(manifest.get("status", ""), "unknown"),
-                        "error_count": 1 if manifest.get("status") == "error" else 0,
+                        "status": mapped_status,
+                        "error_count": 1 if manifest_status == "error" else 0,
+                        "node_count": manifest.get("event_count", 0),
+                        "error_type": error_type,
                     },
                 })
         out.sort(key=lambda r: r.get("created_at", 0), reverse=True)
