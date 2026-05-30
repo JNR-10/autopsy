@@ -257,6 +257,11 @@ class Writer:
                     pass
                 if ev.kind is EventKind.ERROR:
                     state.kept = True
+                if ev.kind is EventKind.DETECTOR_VERDICT:
+                    if ev.verdict == "fail":
+                        state.kept = True
+                    elif ev.verdict == "warn" and self.config.promote_on_warn:
+                        state.kept = True
                 if state.buffer_bytes > cap_bytes and not state.kept:
                     state.kept = True
                     state.partial = True
