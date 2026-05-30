@@ -65,8 +65,22 @@ def read_v0_bundle(path: Path) -> dict[str, Any] | None:
     return bundle
 
 
-def _v1_event_to_legacy(ev: dict[str, Any]) -> dict[str, Any]:
+def _v1_event_to_legacy(ev: dict[str, Any]) -> dict[str, Any] | None:
     kind = ev.get("kind")
+    if kind == "detector_verdict":
+        verdict = ev.get("verdict")
+        if verdict == "pass":
+            return None
+        if verdict != "fail":
+            return None
+        legacy = dict(ev)
+        legacy["event_type"] = "node_error"
+        legacy["timestamp"] = ev.get("timestamp_ns", 0) / 1e9
+        legacy["node_id"] = ev.get("parent_id") or ev.get("event_id")
+        legacy["error_type"] = f"detector:{ev.get('detector_name', '')}"
+        legacy["error_message"] = ev.get("reason", "")
+        legacy["duration_ms"] = 0
+        return legacy
     legacy = dict(ev)
     legacy["event_type"] = _KIND_TO_LEGACY_TYPE.get(kind, kind)
     legacy["timestamp"] = ev.get("timestamp_ns", 0) / 1e9
@@ -139,7 +153,10 @@ def read_v1_bundle(session_dir: Path) -> dict[str, Any] | None:
         return None
 
     raw_events = _load_events_jsonl(session_dir)
-    legacy_events = [_v1_event_to_legacy(e) for e in raw_events]
+    legacy_events = [
+        leg for e in raw_events
+        if (leg := _v1_event_to_legacy(e)) is not None
+    ]
 
     error_count = sum(1 for e in legacy_events if e.get("event_type") == "node_error")
     summary_status = {
