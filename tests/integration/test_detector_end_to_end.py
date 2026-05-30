@@ -10,9 +10,12 @@ import types
 import pytest
 
 from autopsy.core.config import LensConfig
+from autopsy.core.context import current_session
 from autopsy.core.decorator import LensDecorator
+from autopsy.core.events import EventKind, ToolCallStartEvent
 from autopsy.core.interceptor import InterceptorManager
 from autopsy.core.session import get_writer
+from autopsy.core.ulid import new_ulid
 
 
 class _FakeEmptyAsync:
@@ -61,12 +64,68 @@ def wired(tmp_path, monkeypatch):
     monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
 
 
+@pytest.fixture
+def wired_tool_loop(tmp_path, monkeypatch):
+    cfg = LensConfig(
+        session_dir=str(tmp_path),
+        default_sample="errors",
+        enabled_detectors=["tool_loop"],
+        tool_loop_threshold=3,
+    )
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    lens = LensDecorator(config=cfg)
+    yield lens, tmp_path, cfg
+    w = get_writer(cfg)
+    w.shutdown(timeout=2.0)
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+
+
 def _session_dir(tmp_path):
     sd = tmp_path / "sessions"
     if not sd.exists():
         return None
     rows = [p for p in sd.iterdir() if (p / "manifest.json").exists()]
     return rows[0] if rows else None
+
+
+def _wait_for_session(tmp_path):
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        sd = _session_dir(tmp_path)
+        if sd is not None:
+            return sd
+        time.sleep(0.02)
+    return _session_dir(tmp_path)
+
+
+def _load_events(session_dir):
+    gz = session_dir / "events.jsonl.gz"
+    plain = session_dir / "events.jsonl"
+    if gz.exists():
+        opener = lambda: gzip.open(gz, "rt")
+    elif plain.exists():
+        opener = lambda: plain.open("r")
+    else:
+        return []
+    with opener() as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def _emit_tool_start(tool_name: str) -> None:
+    """Simulate tool-call capture until first-class tool instrumentation ships."""
+    session = current_session()
+    if session is None:
+        return
+    session.record_event(ToolCallStartEvent(
+        event_id=new_ulid(),
+        parent_id=None,
+        session_id=session.session_id,
+        trace_id=session.session_id,
+        timestamp_ns=time.time_ns(),
+        kind=EventKind.TOOL_CALL_START,
+        tool_name=tool_name,
+        tool_args={},
+    ))
 
 
 def test_semantic_failure_empty_llm_response_keeps_session(wired):
@@ -82,14 +141,10 @@ def test_semantic_failure_empty_llm_response_keeps_session(wired):
 
     asyncio.run(agent("hi"))
 
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and _session_dir(tmp_path) is None:
-        time.sleep(0.02)
-    sd = _session_dir(tmp_path)
+    sd = _wait_for_session(tmp_path)
     assert sd is not None
 
-    with gzip.open(sd / "events.jsonl.gz", "rt") as f:
-        events = [json.loads(line) for line in f if line.strip()]
+    events = _load_events(sd)
     kinds = [e["kind"] for e in events]
     assert "llm_response" in kinds
     assert "detector_verdict" in kinds
@@ -101,3 +156,32 @@ def test_semantic_failure_empty_llm_response_keeps_session(wired):
     manifest = json.loads((sd / "manifest.json").read_text())
     assert manifest["status"] == "error"
     assert manifest["error_type"] == "detector:empty_response"
+
+
+def test_semantic_failure_tool_loop_keeps_session(wired_tool_loop):
+    """Repeated same-tool calls under errors sampling trigger tool_loop detector."""
+    lens, tmp_path, cfg = wired_tool_loop
+
+    @lens.trace
+    def agent():
+        for _ in range(3):
+            _emit_tool_start("search")
+        return "done"
+
+    assert agent() == "done"
+
+    sd = _wait_for_session(tmp_path)
+    assert sd is not None
+
+    events = _load_events(sd)
+    tool_starts = [e for e in events if e["kind"] == "tool_call_start"]
+    assert len(tool_starts) == 3
+
+    verdicts = [e for e in events if e["kind"] == "detector_verdict"]
+    assert any(v["verdict"] == "fail" for v in verdicts)
+    assert any(v["detector_name"] == "tool_loop" for v in verdicts)
+    assert any("search" in v.get("reason", "") for v in verdicts)
+
+    manifest = json.loads((sd / "manifest.json").read_text())
+    assert manifest["status"] == "error"
+    assert manifest["error_type"] == "detector:tool_loop"
