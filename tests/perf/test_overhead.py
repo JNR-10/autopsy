@@ -1,13 +1,11 @@
 """p99 overhead per traced call must stay under 5 ms (spec target)."""
 from __future__ import annotations
 
-import asyncio
-
 from autopsy.core.config import LensConfig
 from autopsy.core.decorator import LensDecorator
 from autopsy.core.session import get_writer
 
-from tests.perf.harness import measure_overhead_ms
+from tests.perf.harness import measure_async_overhead_ms, measure_overhead_ms
 
 
 def test_async_p99_overhead_under_5ms(tmp_path, monkeypatch):
@@ -22,14 +20,11 @@ def test_async_p99_overhead_under_5ms(tmp_path, monkeypatch):
     async def baseline_agent():
         return 1
 
-    def run_baseline():
-        asyncio.run(baseline_agent())
-
-    def run_traced():
-        asyncio.run(traced_agent())
-
-    out = measure_overhead_ms(
-        baseline=run_baseline, traced=run_traced, iterations=500, warmup=50,
+    out = measure_async_overhead_ms(
+        baseline=baseline_agent,
+        traced=traced_agent,
+        iterations=500,
+        warmup=50,
     )
     w = get_writer(cfg)
     w.shutdown(timeout=2.0)
