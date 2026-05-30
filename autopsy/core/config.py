@@ -38,6 +38,14 @@ class LensConfig:
     log_finalization: bool = True
     log_finalization_info_rate_s: int = 60
     redactor: Callable[[Any], Any] | None = field(default=None)
+    enabled_detectors: list[str] = field(default_factory=lambda: [
+        "empty_response", "tool_loop", "missing_output",
+    ])
+    promote_on_warn: bool = False
+    max_capture_buffer_events: int = 256
+    max_capture_buffer_bytes: int = 2_097_152
+    tool_loop_threshold: int = 5
+    max_tool_calls: int = 50
 
 
 def _parse_sample(raw: str) -> str | float:
@@ -74,6 +82,14 @@ def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
         )
     if "AUTOPSY_SESSION_DIR" in os.environ:
         c.session_dir = os.environ["AUTOPSY_SESSION_DIR"]
+    if "AUTOPSY_DETECTORS" in os.environ:
+        raw = os.environ["AUTOPSY_DETECTORS"].strip()
+        if raw.lower() in ("", "off", "none"):
+            c.enabled_detectors = []
+        else:
+            c.enabled_detectors = [x.strip() for x in raw.split(",") if x.strip()]
+    if "AUTOPSY_PROMOTE_ON_WARN" in os.environ:
+        c.promote_on_warn = _parse_bool(os.environ["AUTOPSY_PROMOTE_ON_WARN"], c.promote_on_warn)
     for env_key, attr in (
         ("AUTOPSY_FLUSH_BATCH_SIZE", "flush_batch_size"),
         ("AUTOPSY_FLUSH_INTERVAL_MS", "flush_interval_ms"),
@@ -83,6 +99,10 @@ def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
         ("AUTOPSY_MAX_IN_FLIGHT_BUFFER_MB", "max_in_flight_buffer_mb"),
         ("AUTOPSY_MAX_EVENT_FIELD_BYTES", "max_event_field_bytes"),
         ("AUTOPSY_LOG_FINALIZATION_INFO_RATE_S", "log_finalization_info_rate_s"),
+        ("AUTOPSY_TOOL_LOOP_THRESHOLD", "tool_loop_threshold"),
+        ("AUTOPSY_MAX_TOOL_CALLS", "max_tool_calls"),
+        ("AUTOPSY_MAX_CAPTURE_BUFFER_EVENTS", "max_capture_buffer_events"),
+        ("AUTOPSY_MAX_CAPTURE_BUFFER_BYTES", "max_capture_buffer_bytes"),
     ):
         if env_key in os.environ:
             try:
