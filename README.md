@@ -37,10 +37,14 @@ autopsy run agent.py
 ```bash
 autopsy run examples/financial_research_pipeline.py   # run an agent + dashboard
 autopsy serve                                          # start dashboard only
-autopsy sessions                                       # list saved traces
-autopsy diagnose <session_id>                          # AI root-cause analysis
-autopsy replay <session_id>                            # simulated replay with fix
-autopsy clean --all                                    # wipe local sessions
+autopsy ls                                             # list saved traces (--json for scripts)
+autopsy show <session_id>                              # session detail + detector verdicts
+autopsy diagnose <session_id>                          # AI root-cause analysis (--json)
+autopsy tail <session_id>                              # last N events or live stream
+autopsy export [--out file.tar.gz]                     # export sessions (tar.gz default)
+autopsy import <file>                                  # import tarball or legacy JSON
+autopsy replay <session_id>                            # simulated replay with fix (--json)
+autopsy clean --all                                    # wipe local sessions (v1 dirs + v0 blobs)
 ```
 
 ## What you get
