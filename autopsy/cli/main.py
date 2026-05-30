@@ -3,19 +3,24 @@
 Commands:
   autopsy run <script.py>     start server + run user agent + open browser
   autopsy serve               start server only
-  autopsy sessions            list saved sessions
+  autopsy ls                  list saved sessions (canonical)
+  autopsy sessions            alias for ls
+  autopsy show <id>           show session detail
   autopsy diagnose <id>       diagnose a saved session
+  autopsy tail <id>           tail session events (live or last N)
+  autopsy export              export sessions to tarball
+  autopsy import <file>       import sessions from tarball/JSON
   autopsy replay <id>         simulated replay of a saved session
   autopsy clean               delete old sessions
-  autopsy deploy              export sessions for sharing (v1 fallback)
+  autopsy deploy              deprecated alias for export
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import runpy
+import shutil
 import sys
 import threading
 import time
@@ -51,11 +56,14 @@ def _session_dir() -> Path:
     return default_session_dir()
 
 
+def _store_root() -> Path:
+    sd = _session_dir()
+    return sd.parent if sd.name == "sessions" else sd
+
+
 def _bundle_reader():
     from autopsy.core.compat import LegacyBundleReader
-    sd = _session_dir()
-    root = sd.parent if sd.name == "sessions" else sd
-    return LegacyBundleReader(root=root)
+    return LegacyBundleReader(root=_store_root())
 
 
 @click.group()
@@ -173,42 +181,102 @@ def _start_server_and_run(script: str, *, port: int, host: str, open_browser: bo
     sys.exit(exit_code)
 
 
-@cli.command("sessions")
-def cmd_sessions() -> None:
-    """List recorded sessions."""
-    sessions = _bundle_reader().list()
-    if not sessions:
+def _cmd_ls(*, as_json: bool) -> None:
+    """List recorded sessions (human table or --json)."""
+    from autopsy.cli.output import build_session_list_rows, session_list_json
+
+    reader = _bundle_reader()
+    rows = build_session_list_rows(reader)
+    if not rows:
+        if as_json:
+            click.echo(session_list_json([]))
+            return
         console.print(
             "[yellow]No sessions yet. "
             "Run [cyan]autopsy run agent.py[/cyan] to record one.[/yellow]")
         return
+    if as_json:
+        click.echo(session_list_json(rows))
+        return
+    from datetime import datetime
+
     table = Table(title="autopsy sessions", show_lines=False)
     table.add_column("session_id", style="dim", overflow="fold")
     table.add_column("agent")
     table.add_column("status")
-    table.add_column("nodes", justify="right")
     table.add_column("errors", justify="right")
-    table.add_column("tokens", justify="right")
-    table.add_column("dur (ms)", justify="right")
+    table.add_column("detector")
+    table.add_column("duration_ms", justify="right")
     table.add_column("created", style="dim")
-    for s in sessions[:50]:
-        from datetime import datetime
-        summary = s.get("summary") or {}
-        created = datetime.fromtimestamp(s.get("created_at", 0))
-        status = summary.get("status", s.get("status", "?"))
+    for row in rows[:50]:
+        created = datetime.fromisoformat(
+            row["created"].replace("Z", "+00:00"),
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        status = row["status"]
         color = "green" if status == "success" else (
             "red" if status == "error" else "yellow")
         table.add_row(
-            s.get("session_id", "")[:18],
-            s.get("agent_name", "")[:30],
+            row["session_id"][:18],
+            row["agent"][:30],
             f"[{color}]{status}[/{color}]",
-            str(summary.get("node_count", s.get("node_count", 0))),
-            str(summary.get("error_count", s.get("error_count", 0))),
-            str(summary.get("total_tokens", s.get("total_tokens", 0))),
-            str(int(summary.get("total_duration_ms", s.get("total_duration_ms", 0)))),
-            created.strftime("%Y-%m-%d %H:%M:%S"),
+            str(row["errors"]),
+            row["detector"],
+            str(row["duration_ms"]),
+            created,
         )
     console.print(table)
+
+
+@cli.command("ls")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON array to stdout")
+def cmd_ls(as_json: bool) -> None:
+    """List recorded sessions."""
+    _cmd_ls(as_json=as_json)
+
+
+@cli.command("sessions")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON array to stdout")
+@click.pass_context
+def cmd_sessions(ctx: click.Context, as_json: bool) -> None:
+    """List recorded sessions (alias for ls)."""
+    ctx.invoke(cmd_ls, as_json=as_json)
+
+
+@cli.command("show")
+@click.argument("session_id")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON summary to stdout")
+@click.option("--events", "show_events", is_flag=True, help="Include compact event timeline")
+def cmd_show(session_id: str, as_json: bool, show_events: bool) -> None:
+    """Show session detail: summary, detector verdicts, errors, stats."""
+    from autopsy.cli.output import format_show_human, session_summary_json
+    from autopsy.cli.resolve import resolve_session_id
+
+    reader = _bundle_reader()
+    sid = resolve_session_id(reader, session_id)
+    bundle = reader.load(sid)
+    if bundle is None:
+        raise click.ClickException(f"session {session_id!r} not found")
+
+    if as_json:
+        click.echo(session_summary_json(bundle, reader=reader))
+        return
+
+    format_show_human(
+        bundle, reader=reader, console=console, show_events=show_events,
+    )
+
+
+def _make_diagnose_agent(model: str, bundle: dict):
+    """Pick GMI vs Gemini agent (overridable in tests)."""
+    from autopsy.diagnostics.gemini_agent import GeminiAgent, estimate_bundle_tokens
+    from autopsy.diagnostics.gmi_agent import GMIAgent
+
+    if model == "gemini":
+        return GeminiAgent()
+    if model == "gmi":
+        return GMIAgent()
+    est = estimate_bundle_tokens(bundle)
+    return GeminiAgent() if est > 32_000 else GMIAgent()
 
 
 @cli.command("diagnose")
@@ -216,35 +284,25 @@ def cmd_sessions() -> None:
 @click.option("--node", "node_id", default=None, help="Specific node to diagnose")
 @click.option("--model", default="auto",
               type=click.Choice(["auto", "gmi", "gemini"]))
-def cmd_diagnose(session_id: str, node_id: str, model: str) -> None:
+@click.option("--json", "as_json", is_flag=True, help="Emit DiagnosisResult JSON to stdout")
+def cmd_diagnose(session_id: str, node_id: str, model: str, as_json: bool) -> None:
     """Diagnose a saved session with the AI debugger."""
-    from autopsy.diagnostics.gemini_agent import GeminiAgent, estimate_bundle_tokens
-    from autopsy.diagnostics.gmi_agent import GMIAgent
+    from autopsy.cli.output import diagnosis_result_json
+    from autopsy.cli.resolve import resolve_session_id
 
-    bundle = _bundle_reader().load(session_id)
+    reader = _bundle_reader()
+    sid = resolve_session_id(reader, session_id)
+    bundle = reader.load(sid)
     if bundle is None:
-        # Try partial match.
-        candidates = [s for s in _bundle_reader().list()
-                      if s.get("session_id", "").startswith(session_id)]
-        if len(candidates) == 1:
-            bundle = _bundle_reader().load(candidates[0]["session_id"])
-        elif len(candidates) > 1:
-            console.print(f"[red]ambiguous session prefix '{session_id}' — "
-                          f"{len(candidates)} matches[/red]")
-            return
-    if bundle is None:
-        console.print(f"[red]session {session_id!r} not found[/red]")
-        return
+        raise click.ClickException(f"session {session_id!r} not found")
 
-    if model == "gemini":
-        agent = GeminiAgent()
-    elif model == "gmi":
-        agent = GMIAgent()
-    else:
-        est = estimate_bundle_tokens(bundle)
-        agent = GeminiAgent() if est > 32_000 else GMIAgent()
-    console.print(f"[dim]Diagnosing with {type(agent).__name__}...[/dim]")
+    agent = _make_diagnose_agent(model, bundle)
+    if not as_json:
+        console.print(f"[dim]Diagnosing with {type(agent).__name__}...[/dim]")
     result = asyncio.run(agent.diagnose(bundle, node_id))
+    if as_json:
+        click.echo(diagnosis_result_json(result))
+        return
     console.print()
     console.print(f"[bold]🔍 Root cause[/bold]\n{result.root_cause}\n")
     console.print(
@@ -266,29 +324,77 @@ def cmd_diagnose(session_id: str, node_id: str, model: str) -> None:
                 f"{int(result.estimated_latency_savings_ms)}ms[/dim]")
 
 
+@cli.command("tail")
+@click.argument("session_id")
+@click.option("--lines", default=20, type=int, help="Last N events for finalized sessions")
+@click.option("--json", "as_json", is_flag=True, help="Emit NDJSON events to stdout")
+def cmd_tail(session_id: str, lines: int, as_json: bool) -> None:
+    """Tail session events (last N for finalized, poll for live)."""
+    from autopsy.cli.resolve import resolve_session_id
+    from autopsy.cli.tail import tail_session
+
+    reader = _bundle_reader()
+    sid = resolve_session_id(reader, session_id)
+    try:
+        tail_session(reader, sid, lines=lines, as_json=as_json)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@cli.command("export")
+@click.option("--out", default="autopsy-export.tar.gz", help="Output file path")
+@click.option("--format", "fmt", default="tar",
+              type=click.Choice(["tar", "json"]),
+              help="Export format: tar.gz (default) or legacy JSON")
+def cmd_export(out: str, fmt: str) -> None:
+    """Export sessions to a tarball or legacy JSON bundle."""
+    from autopsy.cli.export_import import export_sessions
+
+    root = _store_root()
+    count = export_sessions(root, Path(out), format=fmt)
+    console.print(f"[green]exported {count} session(s) to {out}[/green]")
+
+
+@cli.command("import")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False))
+def cmd_import(file: str) -> None:
+    """Import sessions from a tarball or legacy JSON bundle."""
+    from autopsy.cli.export_import import import_sessions
+
+    root = _store_root()
+    count = import_sessions(root, Path(file))
+    console.print(f"[green]imported {count} session(s)[/green]")
+
+
 @cli.command("replay")
 @click.argument("session_id")
 @click.option("--from-node", "node_id", default=None)
 @click.option("--fix", default="Applied developer fix")
-def cmd_replay(session_id: str, node_id: str, fix: str) -> None:
+@click.option("--json", "as_json", is_flag=True, help="Emit replay result JSON to stdout")
+def cmd_replay(session_id: str, node_id: str, fix: str, as_json: bool) -> None:
     """Simulated replay of a saved session from the first error node."""
+    from autopsy.cli.output import replay_result_json
+    from autopsy.cli.resolve import resolve_session_id
     from autopsy.core.replay import ReplayEngine
 
-    bundle = _bundle_reader().load(session_id)
+    reader = _bundle_reader()
+    sid = resolve_session_id(reader, session_id)
+    bundle = reader.load(sid)
     if bundle is None:
-        console.print(f"[red]session {session_id!r} not found[/red]")
-        return
+        raise click.ClickException(f"session {session_id!r} not found")
     if not node_id:
         for ev in bundle["events"]:
             if ev.get("event_type") == "node_error":
                 node_id = ev.get("node_id")
                 break
     if not node_id:
-        console.print(
-            "[yellow]No error node found — pass --from-node NODE_ID[/yellow]")
-        return
+        raise click.ClickException(
+            "No error node found — pass --from-node NODE_ID")
     engine = ReplayEngine(bundle)
     result = engine.simulated_replay(node_id, fix)
+    if as_json:
+        click.echo(replay_result_json(result))
+        return
     comp = result["comparison"]
     console.print(f"[bold]↻ Replay from {node_id[:8]}[/bold]")
     console.print(f"fix: {fix}\n")
@@ -315,7 +421,10 @@ def cmd_replay(session_id: str, node_id: str, fix: str) -> None:
 @click.option("--all", "all_", is_flag=True, help="Delete all sessions")
 def cmd_clean(all_: bool) -> None:
     """Delete saved sessions."""
-    sd = _session_dir()
+    from autopsy.core.store.local_fs import LocalFilesystemStore
+
+    root = _store_root()
+    sd = root / "sessions"
     if not sd.exists():
         console.print("[dim]nothing to clean[/dim]")
         return
@@ -323,34 +432,40 @@ def cmd_clean(all_: bool) -> None:
         console.print(
             "[yellow]Pass --all to confirm deleting every session[/yellow]")
         return
+    store = LocalFilesystemStore(root=root)
     count = 0
-    for p in sd.glob("*.json"):
+    for row in list(store.list_sessions()):
+        store.delete_session(row["session_id"])
+        count += 1
+    for entry in list(sd.iterdir()):
         try:
-            p.unlink()
-            count += 1
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+                count += 1
+            elif entry.suffix == ".json":
+                entry.unlink(missing_ok=True)
+                count += 1
         except Exception:
             pass
-    console.print(f"[green]deleted {count} session files[/green]")
+    store.index.clear()
+    console.print(f"[green]deleted {count} session(s)[/green]")
 
 
 @cli.command("deploy")
 @click.option("--out", default="autopsy-export.json")
-def cmd_deploy(out: str) -> None:
-    """Export sessions as a shareable JSON bundle (v1 fallback)."""
-    reader = _bundle_reader()
-    sessions = reader.list()
-    bundles = []
-    for s in sessions:
-        b = reader.load(s["session_id"])
-        if b is not None:
-            bundles.append(b)
-    Path(out).write_text(json.dumps(
-        {"version": "1", "sessions": bundles}, default=str))
-    console.print(f"[green]exported {len(bundles)} sessions to {out}[/green]")
+@click.option("--format", "fmt", default="json",
+              type=click.Choice(["tar", "json"]),
+              hidden=True)
+@click.pass_context
+def cmd_deploy(ctx: click.Context, out: str, fmt: str) -> None:
+    """Deprecated alias for export."""
     console.print(
-        "[dim]Send this file to a teammate; they can view it with "
-        "[cyan]autopsy serve[/cyan] after dropping it into "
-        "~/.autopsy/sessions/[/dim]")
+        "[yellow]Warning: `autopsy deploy` is deprecated — "
+        "use `autopsy export` instead.[/yellow]")
+    if fmt == "json" or out.endswith(".json"):
+        ctx.invoke(cmd_export, out=out, fmt="json")
+    else:
+        ctx.invoke(cmd_export, out=out, fmt="tar")
 
 
 if __name__ == "__main__":
