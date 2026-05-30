@@ -59,6 +59,8 @@ class LocalFilesystemStore:
         sd.mkdir(parents=True, exist_ok=True)
 
         events_path = sd / "events.jsonl"
+        if not events_path.exists():
+            events_path.write_text("")
         if events_path.exists():
             with events_path.open("rb") as src:
                 src.flush()
