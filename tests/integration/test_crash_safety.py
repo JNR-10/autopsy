@@ -7,10 +7,13 @@ import sys
 import textwrap
 import time
 
+import pytest
+
 from autopsy.core.events import Manifest
 from autopsy.core.store.local_fs import LocalFilesystemStore
 
 
+@pytest.mark.slow
 def test_sigkill_mid_session_leaves_recoverable_files(tmp_path):
     script = tmp_path / "run.py"
     script.write_text(textwrap.dedent(f"""
@@ -28,11 +31,15 @@ def test_sigkill_mid_session_leaves_recoverable_files(tmp_path):
     """).strip())
 
     proc = subprocess.Popen([sys.executable, str(script)])
-    time.sleep(1.0)
+    sessions = tmp_path / "sessions"
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if sessions.exists() and any(sessions.iterdir()):
+            break
+        time.sleep(0.05)
     proc.send_signal(signal.SIGKILL)
     proc.wait(timeout=2.0)
 
-    sessions = tmp_path / "sessions"
     assert sessions.exists()
     dirs = [d for d in sessions.iterdir() if d.is_dir()]
     assert dirs, "no session directory created"

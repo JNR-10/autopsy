@@ -19,9 +19,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "fastapi>=0.111.0",
-    "uvicorn[standard]>=0.29.0",
-    "websockets>=12.0",
     "httpx>=0.27.0",
     "click>=8.1.0",
     "rich>=13.0.0",
@@ -33,9 +30,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+server = ["fastapi>=0.111.0", "uvicorn[standard]>=0.29.0", "websockets>=12.0"]
+openai = ["openai>=1.30.0"]
+anthropic = ["anthropic>=0.40.0"]
 gmi = ["openai>=1.30.0"]
 gemini = ["google-genai>=1.0.0"]
-diagnose = ["openai>=1.30.0", "google-genai>=1.0.0"]
+diagnose = [
+    "openai>=1.30.0",
+    "anthropic>=0.40.0",
+    "google-genai>=1.0.0",
+]
 langchain = ["langchain>=0.2.0", "langchain-openai>=0.1.0"]
 autogen = ["pyautogen>=0.2.0"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "respx>=0.21", "ruff"]
@@ -43,10 +47,15 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "respx>=0.21", "ruff"]
 [project.scripts]
 autopsy = "autopsy.cli.main:cli"
 
+[project.urls]
+Homepage = "https://github.com/JNR-10/autopsy"
+Documentation = "https://github.com/JNR-10/autopsy#readme"
+Repository = "https://github.com/JNR-10/autopsy"
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["autopsy", "autopsy.core", "autopsy.diagnostics",
-           "autopsy.server", "autopsy.cli"]
+include = ["autopsy", "autopsy.core", "autopsy.diagnostics", "autopsy.detectors",
+           "autopsy.demo", "autopsy.server", "autopsy.cli"]
 exclude = ["autopsy.server.static*", "autopsy.server.routes*"]
 
 [tool.setuptools.package-data]
