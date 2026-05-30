@@ -43,8 +43,13 @@ def builtin_detectors() -> dict[str, Detector]:
 
 
 def resolve_enabled(config: LensConfig) -> list[Detector]:
+    from .tool_loop import ToolLoopDetector
+
     out: list[Detector] = []
     for name in config.enabled_detectors:
+        if name == "tool_loop":
+            out.append(ToolLoopDetector(config=config))
+            continue
         d = get(name)
         if d is not None:
             out.append(d)
