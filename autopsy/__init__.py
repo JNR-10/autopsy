@@ -2,8 +2,9 @@
 
 Public API. Users only need::
 
-    from autopsy import lens, log, LensConfig
+    from autopsy import lens, log, load_config
 
+    cfg = load_config()
     @lens.trace
     async def my_agent(query):
         ...
@@ -15,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from autopsy.core.config import LensConfig, load_config_from_env
+from autopsy.config import AutopsyConfig, load_config
 from autopsy.core.context import current_parent_id, current_session
 from autopsy.core.decorator import LensDecorator
 from autopsy.core.events import EventKind, LogEvent
@@ -49,4 +51,4 @@ def log(name: Any, /, **attributes: Any) -> None:
         return
 
 
-__all__ = ["lens", "log", "LensConfig", "__version__"]
+__all__ = ["lens", "log", "LensConfig", "AutopsyConfig", "load_config", "__version__"]
