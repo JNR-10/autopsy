@@ -2,34 +2,54 @@
 
 Public API. Users only need::
 
-    from autopsy import lens
+    from autopsy import lens, log, LensConfig
 
     @lens.trace
     async def my_agent(query):
         ...
+
+    log("retry", attempt=3)
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+from typing import Any
 
+from autopsy.core.config import LensConfig
+from autopsy.core.context import current_parent_id, current_session
 from autopsy.core.decorator import LensDecorator
 from autopsy.core.events import DiagnosisResult, TraceBundle
+from autopsy.core.events_v2 import EventKind, LogEvent
+from autopsy.core.ulid import new_ulid
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-
-@dataclass
-class LensConfig:
-    gmi_api_key: Optional[str] = None
-    google_ai_api_key: Optional[str] = None
-    session_dir: Optional[str] = None
-    port: int = 7823
-    auto_diagnose: bool = False
-    model: Optional[str] = None
-
-
-# Default singleton. Reads keys from env at call time.
 lens = LensDecorator()
 
-__all__ = ["lens", "LensConfig", "TraceBundle", "DiagnosisResult", "__version__"]
+
+def log(name: Any, /, **attributes: Any) -> None:
+    """Emit a structured breadcrumb attached to the current session.
+
+    No-op if there is no active autopsy session. Never raises.
+    """
+    try:
+        session = current_session()
+        if session is None:
+            return
+        ev = LogEvent(
+            event_id=new_ulid(),
+            parent_id=current_parent_id(),
+            session_id=session.session_id,
+            trace_id=session.session_id,
+            timestamp_ns=__import__("time").time_ns(),
+            kind=EventKind.LOG,
+            name=str(name),
+            attributes={k: v for k, v in attributes.items()},
+        )
+        session.record_event(ev)
+    except Exception:
+        return
+
+
+__all__ = [
+    "lens", "log", "LensConfig", "TraceBundle", "DiagnosisResult", "__version__",
+]
