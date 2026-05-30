@@ -12,6 +12,9 @@ from __future__ import annotations
 from typing import Any, Iterable, Protocol, runtime_checkable
 
 from ..events_v2 import BaseEvent, Manifest
+from .local_fs import LocalFilesystemStore
+
+__all__ = ["LocalFilesystemStore", "TraceStore"]
 
 
 @runtime_checkable
