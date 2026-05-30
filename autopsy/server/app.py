@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from autopsy import __version__
+from autopsy.config import demo_enabled
 from autopsy.core.compat import LegacyBundleReader
 from autopsy.core.config import default_session_dir
 from autopsy.core.replay import ReplayEngine
@@ -44,7 +45,7 @@ def _bundle_reader() -> LegacyBundleReader:
 
 class DiagnoseRequest(BaseModel):
     node_id: Optional[str] = None
-    force_model: Optional[str] = None  # "gmi" | "gemini" | None (auto)
+    force_model: Optional[str] = None  # provider name or auto
 
 
 class ReplayRequest(BaseModel):
@@ -65,16 +66,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Clear any stale fix marker from a previous run so each session starts
-    # in the unfixed (broken) state. The user must explicitly click
-    # "Apply fix & replay" on the dashboard to set the marker.
-    for _marker in (Path.home() / ".autopsy" / "fix_applied",
-                    Path.cwd() / ".autopsy" / "fix_applied"):
-        try:
-            if _marker.exists():
-                _marker.unlink()
-        except Exception:
-            pass
+    if demo_enabled():
+        from autopsy.demo.routes import clear_fix_markers, register_demo_routes
+
+        clear_fix_markers()
+        register_demo_routes(app, ws_manager)
 
     # --- REST endpoints --------------------------------------------------------
 
@@ -218,68 +214,6 @@ def create_app() -> FastAPI:
         except Exception:
             logger.exception("delete_session failed")
         return JSONResponse({"deleted": existed})
-
-    # --- Demo control endpoints (used by the live-loop demo) -----------------
-
-    def _fix_markers() -> list[Path]:
-        """Locations the demo pipeline watches for the fix-applied signal."""
-        home = Path.home() / ".autopsy" / "fix_applied"
-        cwd = Path.cwd() / ".autopsy" / "fix_applied"
-        return [home, cwd]
-
-    def _write_fix_markers() -> list[str]:
-        """Write the fix marker to every watched location.
-
-        Returns the list of paths that were written successfully. Failures are
-        swallowed (e.g. sandboxed home dir).
-        """
-        written: list[str] = []
-        for p in _fix_markers():
-            try:
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text("fix applied by dashboard")
-                written.append(str(p))
-            except (PermissionError, OSError):
-                logger.debug("could not write fix marker %s", p)
-            except Exception:
-                logger.exception("unexpected error writing fix marker %s", p)
-        return written
-
-    @app.post("/api/demo/fix")
-    async def demo_apply_fix() -> JSONResponse:
-        """Marks the live demo pipeline as 'fixed'.
-
-        After this call, the next iteration of the broken pipeline will run
-        in success mode (truncates oversized briefs before the synthesizer).
-        """
-        markers_written = _write_fix_markers()
-        await ws_manager.broadcast({
-            "type": "demo_status",
-            "data": {"fix_applied": True, "markers": markers_written},
-        })
-        return JSONResponse({"fix_applied": True, "markers": markers_written})
-
-    @app.post("/api/demo/reset")
-    async def demo_reset() -> JSONResponse:
-        """Removes the fix marker so the demo loop goes back to failing."""
-        removed = []
-        for p in _fix_markers():
-            try:
-                if p.exists():
-                    p.unlink()
-                    removed.append(str(p))
-            except Exception:
-                logger.exception("could not remove fix marker %s", p)
-        await ws_manager.broadcast({
-            "type": "demo_status",
-            "data": {"fix_applied": False, "removed": removed},
-        })
-        return JSONResponse({"fix_applied": False, "removed": removed})
-
-    @app.get("/api/demo/status")
-    async def demo_status() -> JSONResponse:
-        applied = any(p.exists() for p in _fix_markers())
-        return JSONResponse({"fix_applied": applied})
 
     # --- WebSocket -------------------------------------------------------------
 

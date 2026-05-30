@@ -72,6 +72,17 @@ def cli() -> None:
     """autopsy - your agent died. here's why."""
 
 
+def _require_server() -> None:
+    try:
+        import fastapi  # noqa: F401
+        import uvicorn  # noqa: F401
+    except ImportError as exc:
+        raise click.ClickException(
+            "The dashboard server requires optional dependencies: "
+            "pip install autopsy[server]"
+        ) from exc
+
+
 @cli.command("run")
 @click.argument("script", type=click.Path(exists=True, dir_okay=False))
 @click.option("--port", default=None, type=int, help="Server port (default: 7823)")
@@ -79,7 +90,9 @@ def cli() -> None:
 @click.option("--no-browser", is_flag=True, help="Don't auto-open browser")
 @click.option("--debug", is_flag=True, help="Enable debug logging")
 def cmd_run(script: str, port: int, host: str, no_browser: bool, debug: bool) -> None:
-    """Run an agent script with autopsy tracing + dashboard."""
+    """Run an agent script with autopsy tracing + dashboard (demo mode)."""
+    _require_server()
+    os.environ.setdefault("AUTOPSY_DEMO", "1")
     if debug:
         logging.basicConfig(level=logging.DEBUG)
     port = port or _get_port()
@@ -93,6 +106,7 @@ def cmd_run(script: str, port: int, host: str, no_browser: bool, debug: bool) ->
 @click.option("--no-browser", is_flag=True)
 def cmd_serve(port: int, host: str, no_browser: bool) -> None:
     """Start the dashboard server without running an agent."""
+    _require_server()
     port = port or _get_port()
     host = host or _get_host()
     _start_server(port=port, host=host, open_browser=not no_browser)
@@ -100,6 +114,7 @@ def cmd_serve(port: int, host: str, no_browser: bool) -> None:
 
 def _start_server(port: int, host: str, open_browser: bool) -> None:
     """Start uvicorn server in the foreground."""
+    _require_server()
     import uvicorn
     from autopsy.server.app import app
     if open_browser and not os.environ.get("AUTOPSY_NO_BROWSER"):
@@ -123,6 +138,7 @@ def _open_browser(host: str, port: int) -> None:
 
 def _start_server_and_run(script: str, *, port: int, host: str, open_browser: bool) -> None:
     """Run uvicorn in a background thread, then run the user script in the main thread."""
+    _require_server()
     import uvicorn
     from autopsy.server.app import app
 
@@ -277,7 +293,10 @@ def _make_diagnose_agent(model: str, bundle: dict):
 @click.argument("session_id")
 @click.option("--node", "node_id", default=None, help="Specific node to diagnose")
 @click.option("--model", default="auto",
-              type=click.Choice(["auto", "gmi", "gemini"]))
+              type=click.Choice([
+                  "auto", "heuristic", "openai", "anthropic",
+                  "gmi", "gemini", "ollama",
+              ]))
 @click.option("--json", "as_json", is_flag=True, help="Emit DiagnosisResult JSON to stdout")
 def cmd_diagnose(session_id: str, node_id: str, model: str, as_json: bool) -> None:
     """Diagnose a saved session with the AI debugger."""
