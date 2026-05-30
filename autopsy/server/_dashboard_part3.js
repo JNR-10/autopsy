@@ -112,19 +112,7 @@ function safeJSON(v) {
 
 function renderDiagnosis(d) {
   const confPct = Math.round((d.confidence || 0) * 100);
-  const rr = d.rocketride || null;
-  const rrBanner = (rr && rr.used) ? `
-    <div class="rr-banner">
-      <span class="dot-rr" style="display:inline-block;width:6px;height:6px;
-        border-radius:50%;background:var(--ok);margin-right:6px;"></span>
-      Trace pre-processed by RocketRide pipeline
-      <code>${escapeHtml(rr.pipeline || "autopsy_diagnose.pipe")}</code>
-      ${rr.similar_cases > 0
-        ? ` — found <strong>${rr.similar_cases}</strong> similar past failure(s)`
-        : ""}
-    </div>` : "";
   return `<div class="diag-card">
-    ${rrBanner}
     <h4>🔍 Root cause</h4>
     <div style="margin-bottom:10px;">${escapeHtml(d.root_cause || "")}</div>
     <div class="kv">
@@ -260,29 +248,6 @@ async function fetchDemoStatus() {
   } catch (_) { /* ignore */ }
 }
 
-async function fetchRocketRideStatus() {
-  const el = document.getElementById("rr-status");
-  if (!el) return;
-  try {
-    const r = await fetch("/api/rocketride/status");
-    if (!r.ok) throw new Error("status " + r.status);
-    const d = await r.json();
-    const cls = d.ok ? "ok" : "off";
-    const label = d.ok ? "RocketRide: connected"
-      : (d.engine_reachable ? "RocketRide: ready"
-         : (d.sdk_installed ? "RocketRide: engine offline"
-            : "RocketRide: not installed"));
-    el.className = "rr-status " + cls;
-    el.innerHTML = '<span class="dot-rr"></span>' + label;
-    el.title = (d.detail || "") + "\npipe: " + (d.pipe_path || "?") +
-               "\nuri: " + (d.uri || "?");
-  } catch (e) {
-    el.className = "rr-status off";
-    el.innerHTML = '<span class="dot-rr"></span>RocketRide: offline';
-    el.title = String(e);
-  }
-}
-
 function renderHeaderStatus() {
   const el = document.getElementById("demo-status");
   if (!el) return;
@@ -305,6 +270,4 @@ document.addEventListener("click", (e) => {
 
 fetchSessions();
 fetchDemoStatus();
-fetchRocketRideStatus();
-setInterval(fetchRocketRideStatus, 30000);
 connectWS();

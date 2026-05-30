@@ -145,32 +145,6 @@ def create_app() -> FastAPI:
                 estimate_bundle_tokens,
             )
             from autopsy.diagnostics.gmi_agent import GMIAgent
-            from autopsy.diagnostics.rocketride_agent import RocketRideAgent
-
-            # OPTIONAL pre-processing via RocketRide pipeline. When the engine
-            # is reachable, this scrubs PII, summarizes the trace, and pulls
-            # similar past failures from vector memory. The result is attached
-            # to the bundle so the GMI/Gemini prompt has richer context.
-            # When the engine isn't running we skip silently and behave
-            # exactly as before -> no breakage.
-            rr_meta: dict = {"used": False}
-            try:
-                rr = RocketRideAgent()
-                if rr.available():
-                    rr_ctx = await rr.preprocess(bundle)
-                    if rr_ctx:
-                        bundle.rocketride_context = rr_ctx  # type: ignore
-                        rr_meta = {
-                            "used": True,
-                            "pipeline": rr_ctx.get("_rocketride", {}).get(
-                                "pipeline", "autopsy_diagnose.pipe"),
-                            "similar_cases": len(
-                                rr_ctx.get("similar_cases", []) or []),
-                        }
-            except Exception:
-                logger.exception(
-                    "RocketRide pre-processing failed; "
-                    "falling back to direct LLM diagnosis")
 
             force = (req.force_model or "").lower()
             if force == "gemini":
@@ -181,38 +155,10 @@ def create_app() -> FastAPI:
                 est = estimate_bundle_tokens(bundle)
                 agent = GeminiAgent() if est > 32_000 else GMIAgent()
             result = await agent.diagnose(bundle, req.node_id)
-            # Attach RocketRide metadata so the dashboard can show it.
-            payload = asdict(result)
-            payload["rocketride"] = rr_meta
-            return JSONResponse(payload)
+            return JSONResponse(asdict(result))
         except Exception:
             logger.exception("diagnose route failed")
             raise HTTPException(status_code=500, detail="diagnose failed")
-
-    @app.get("/api/rocketride/status")
-    async def rocketride_status() -> JSONResponse:
-        """Health-check the RocketRide integration for the dashboard pill."""
-        try:
-            from autopsy.diagnostics.rocketride_agent import RocketRideAgent
-            agent = RocketRideAgent()
-            pre = await agent.preflight()
-            return JSONResponse({
-                "sdk_installed": pre.sdk_installed,
-                "engine_reachable": pre.engine_reachable,
-                "pipe_file_present": pre.pipe_file_present,
-                "ok": pre.ok,
-                "detail": pre.detail,
-                "uri": agent.uri,
-                "pipe_path": str(agent.pipe_path),
-            })
-        except Exception as e:
-            return JSONResponse({
-                "sdk_installed": False,
-                "engine_reachable": False,
-                "pipe_file_present": False,
-                "ok": False,
-                "detail": str(e),
-            })
 
     @app.post("/api/sessions/{session_id}/replay")
     async def replay(session_id: str, req: ReplayRequest) -> JSONResponse:

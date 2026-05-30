@@ -42,19 +42,6 @@ header { display: flex; align-items: center; gap: 14px; padding: 12px 16px;
 .pill.err-pill { color: var(--err); border-color: var(--err);
   background: rgba(255,93,93,0.08); }
 .demo-status { display: flex; align-items: center; gap: 8px; }
-.rr-status { display: inline-flex; align-items: center; gap: 6px;
-  font-size: 10px; padding: 4px 8px; border-radius: 4px;
-  border: 1px solid var(--border); background: var(--bg-3);
-  letter-spacing: 0.05em; cursor: help; }
-.rr-status .dot-rr { width: 6px; height: 6px; border-radius: 50%;
-  background: var(--muted); }
-.rr-status.ok .dot-rr { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-.rr-status.off .dot-rr { background: var(--muted); }
-.rr-banner { background: rgba(61,220,151,0.06); border: 1px solid rgba(61,220,151,0.35);
-  border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; font-size: 11px;
-  color: var(--fg); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.rr-banner code { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px;
-  font-size: 10px; }
 .btn.btn-sm { padding: 4px 10px; font-size: 11px; }
 .live-badge { display: inline-block; font-size: 9px; font-weight: 700;
   letter-spacing: 0.08em; padding: 2px 6px; border-radius: 3px;
@@ -211,7 +198,6 @@ pre.code.err { color: #ffd0d0; border-color: var(--err); }
   <div class="logo">autopsy<span class="dot">.</span></div>
   <div class="tag">your agent died. here's why.</div>
   <div class="spacer"></div>
-  <div id="rr-status" class="rr-status" title="RocketRide pipeline integration"></div>
   <div id="demo-status" class="demo-status"></div>
   <div id="ws-status" class="pill dead">offline</div>
 </header>
