@@ -19,7 +19,7 @@ import time
 from typing import Optional
 
 from .config import LensConfig
-from .events_v2 import BaseEvent
+from .events import BaseEvent
 from .store.local_fs import LocalFilesystemStore
 from .ulid import new_ulid
 from .writer import SampleMode, Writer

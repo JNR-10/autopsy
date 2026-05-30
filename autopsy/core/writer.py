@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .config import LensConfig
-from .events_v2 import BaseEvent, EventKind, Manifest
+from .events import BaseEvent, EventKind, Manifest
 
 logger = logging.getLogger("autopsy.writer")
 

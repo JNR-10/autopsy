@@ -13,7 +13,7 @@ import logging
 import time
 from typing import Iterable
 
-from ..events_v2 import BaseEvent, Manifest
+from ..events import BaseEvent, Manifest
 
 _LOGGER = logging.getLogger("autopsy")
 

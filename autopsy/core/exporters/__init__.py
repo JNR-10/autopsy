@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Iterable, Protocol, runtime_checkable
 
-from ..events_v2 import BaseEvent, Manifest
+from ..events import BaseEvent, Manifest
 
 
 @runtime_checkable

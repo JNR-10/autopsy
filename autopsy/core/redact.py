@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .events_v2 import BaseEvent
+from .events import BaseEvent
 
 REDACTED = "[REDACTED:secret]"
 

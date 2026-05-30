@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
-
-from autopsy.core.events import TraceBundle
+from typing import Any, Optional
 
 
 DIAGNOSIS_SYSTEM_PROMPT = """You are an expert AI agent debugger. You receive a trace of a multi-agent LLM pipeline that has failed or performed poorly, and you diagnose the root cause.
@@ -38,23 +36,22 @@ def _truncate(s: str, limit: int) -> str:
     return s[:limit] + "...[truncated]"
 
 
-def build_diagnosis_user_prompt(bundle: TraceBundle, target_node_id: Optional[str]) -> str:
-    """Build a detailed user message describing the failed trace.
+def build_diagnosis_user_prompt(bundle: dict[str, Any], target_node_id: Optional[str]) -> str:
+    """Build a detailed user message describing the failed trace."""
+    events = bundle.get("events") or []
+    node_index = bundle.get("node_index") or {}
 
-    Stays under ~6000 tokens by aggressive truncation.
-    """
-    # Auto-detect target if not provided
     if not target_node_id:
-        for ev in bundle.events:
+        for ev in events:
             if ev.get("event_type") == "node_error":
                 target_node_id = ev.get("node_id")
                 break
 
     lines: list[str] = []
     lines.append("# Trace Summary")
-    lines.append(f"Agent: {bundle.agent_name}")
-    lines.append(f"Input: {_truncate(bundle.input_query, 500)}")
-    summary = bundle.summary or {}
+    lines.append(f"Agent: {bundle.get('agent_name', '')}")
+    lines.append(f"Input: {_truncate(bundle.get('input_query', ''), 500)}")
+    summary = bundle.get("summary") or {}
     lines.append(f"Status: {summary.get('status', 'unknown')}")
     lines.append(f"Total duration: {summary.get('total_duration_ms', 0):.0f}ms")
     lines.append(f"Total tokens: {summary.get('total_tokens', 0)}")
@@ -62,17 +59,16 @@ def build_diagnosis_user_prompt(bundle: TraceBundle, target_node_id: Optional[st
     lines.append(f"Error count: {summary.get('error_count', 0)}")
     lines.append("")
 
-    # DAG of nodes
     lines.append("# Execution Graph (in order)")
     seen: set = set()
-    for ev in bundle.events:
+    for ev in events:
         if ev.get("event_type") != "node_start":
             continue
         nid = ev.get("node_id")
         if nid in seen:
             continue
         seen.add(nid)
-        nidx = bundle.node_index.get(nid, {})
+        nidx = node_index.get(nid, {})
         end = nidx.get("end_event") or {}
         err = nidx.get("error_event") or {}
         status = "ERROR" if err else ("OK" if end else "RUNNING")
@@ -85,13 +81,11 @@ def build_diagnosis_user_prompt(bundle: TraceBundle, target_node_id: Optional[st
         )
     lines.append("")
 
-    # Failed node details
     if target_node_id:
         lines.append(f"# Failed Node: {target_node_id}")
-        nidx = bundle.node_index.get(target_node_id, {})
+        nidx = node_index.get(target_node_id, {})
         start = nidx.get("start_event") or {}
         err = nidx.get("error_event") or {}
-        end = nidx.get("end_event") or {}
         llm_events = nidx.get("llm_events") or []
         lines.append(f"Name: {start.get('node_name', '?')}")
         lines.append(f"Type: {start.get('node_type', '?')}")
@@ -130,7 +124,7 @@ def build_diagnosis_user_prompt(bundle: TraceBundle, target_node_id: Optional[st
     lines.append("")
     lines.append("# Latency Breakdown (top 5 slowest nodes)")
     nodes_with_dur = []
-    for nid, ni in bundle.node_index.items():
+    for nid, ni in node_index.items():
         end = ni.get("end_event") or {}
         err = ni.get("error_event") or {}
         d = end.get("duration_ms") or err.get("duration_ms") or 0

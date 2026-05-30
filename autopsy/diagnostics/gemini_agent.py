@@ -7,12 +7,11 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
-
-from autopsy.core.events import DiagnosisResult, TraceBundle
+from typing import Any, Optional
 
 from .gmi_agent import _extract_json, _heuristic_diagnosis
 from .prompts import DIAGNOSIS_SYSTEM_PROMPT, build_diagnosis_user_prompt
+from .types import DiagnosisResult
 
 logger = logging.getLogger("autopsy.diagnostics.gemini")
 
@@ -29,7 +28,7 @@ class GeminiAgent:
         self.timeout = timeout
 
     async def diagnose(
-        self, bundle: TraceBundle, target_node_id: Optional[str] = None
+        self, bundle: dict[str, Any], target_node_id: Optional[str] = None
     ) -> DiagnosisResult:
         heuristic = _heuristic_diagnosis(bundle, target_node_id)
         if not self.api_key:
@@ -82,10 +81,10 @@ class GeminiAgent:
             return heuristic
 
 
-def estimate_bundle_tokens(bundle: TraceBundle) -> int:
+def estimate_bundle_tokens(bundle: dict[str, Any]) -> int:
     """Rough size estimate (chars/4) of the full bundle as text."""
     import json
     try:
-        return len(json.dumps(bundle.events, default=str)) // 4
+        return len(json.dumps(bundle.get("events", []), default=str)) // 4
     except Exception:
         return 0

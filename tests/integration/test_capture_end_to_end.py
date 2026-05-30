@@ -10,8 +10,8 @@ import types
 import pytest
 
 from autopsy.core.config import LensConfig
-from autopsy.core.decorator import LensV2Decorator
-from autopsy.core.interceptor import InterceptorV2Manager
+from autopsy.core.decorator import LensDecorator
+from autopsy.core.interceptor import InterceptorManager
 from autopsy.core.session import get_writer
 
 
@@ -45,9 +45,9 @@ def wired(tmp_path, monkeypatch):
         "autopsy.core.interceptor._import_openai_targets",
         lambda: (_FakeAsync(), _FakeSync()),
     )
-    mgr = InterceptorV2Manager()
+    mgr = InterceptorManager()
     mgr.install()
-    lens = LensV2Decorator(config=cfg)
+    lens = LensDecorator(config=cfg)
     yield lens, tmp_path, cfg
     mgr.uninstall()
     w = get_writer(cfg)

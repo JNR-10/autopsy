@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from autopsy.core.events_v2 import Manifest
+from autopsy.core.events import Manifest
 from autopsy.core.exporters.logging import LoggingExporter
 
 

@@ -14,16 +14,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from autopsy.core.config import LensConfig
+from autopsy.core.config import LensConfig, load_config_from_env
 from autopsy.core.context import current_parent_id, current_session
 from autopsy.core.decorator import LensDecorator
-from autopsy.core.events import DiagnosisResult, TraceBundle
-from autopsy.core.events_v2 import EventKind, LogEvent
+from autopsy.core.events import EventKind, LogEvent
 from autopsy.core.ulid import new_ulid
 
 __version__ = "0.2.0"
 
-lens = LensDecorator()
+lens = LensDecorator(config=load_config_from_env())
 
 
 def log(name: Any, /, **attributes: Any) -> None:
@@ -50,6 +49,4 @@ def log(name: Any, /, **attributes: Any) -> None:
         return
 
 
-__all__ = [
-    "lens", "log", "LensConfig", "TraceBundle", "DiagnosisResult", "__version__",
-]
+__all__ = ["lens", "log", "LensConfig", "__version__"]

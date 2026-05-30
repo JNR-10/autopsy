@@ -5,7 +5,7 @@ import time
 
 
 from autopsy.core.config import LensConfig
-from autopsy.core.events_v2 import (
+from autopsy.core.events import (
     AgentEndEvent,
     AgentStartEvent,
     ErrorEvent,

@@ -1,7 +1,7 @@
 """Tests for FileSystemExporter wrapping LocalFilesystemStore."""
 from __future__ import annotations
 
-from autopsy.core.events_v2 import (
+from autopsy.core.events import (
     AgentStartEvent,
     EventKind,
     Manifest,

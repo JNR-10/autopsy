@@ -1,7 +1,7 @@
 """Unit tests for the SQLite derived index."""
 from __future__ import annotations
 
-from autopsy.core.events_v2 import Manifest
+from autopsy.core.events import Manifest
 from autopsy.core.store.sqlite_index import SQLiteIndex
 
 

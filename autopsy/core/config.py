@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger("autopsy.config")
@@ -88,3 +90,31 @@ def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
             except ValueError:
                 logger.warning("autopsy: invalid %s=%r", env_key, os.environ[env_key])
     return c
+
+
+def default_session_dir() -> Path:
+    """Pick a writable session directory (``…/sessions``).
+
+    Order of preference:
+      1. AUTOPSY_SESSION_DIR env var (must be writable; created on demand)
+      2. ~/.autopsy/sessions (typical user install)
+      3. ./.autopsy/sessions (sandbox / read-only home / CI)
+      4. /tmp/autopsy_sessions (last resort)
+    """
+    candidates: list[Path] = []
+    raw = os.environ.get("AUTOPSY_SESSION_DIR")
+    if raw:
+        candidates.append(Path(os.path.expanduser(raw)))
+    candidates.append(Path(os.path.expanduser("~/.autopsy/sessions")))
+    candidates.append(Path.cwd() / ".autopsy" / "sessions")
+    candidates.append(Path(tempfile.gettempdir()) / "autopsy" / "sessions")
+    for c in candidates:
+        try:
+            c.mkdir(parents=True, exist_ok=True)
+            probe = c / ".write_probe"
+            probe.write_text("")
+            probe.unlink(missing_ok=True)
+            return c
+        except Exception:
+            continue
+    return candidates[-1]

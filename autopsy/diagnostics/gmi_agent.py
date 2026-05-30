@@ -14,25 +14,26 @@ import json
 import logging
 import os
 import re
-from typing import Optional
+from typing import Any, Optional
 
-from autopsy.core.events import DiagnosisResult, TraceBundle
 from autopsy.core.interceptor import restore_tracing, suppress_tracing
 
 from .prompts import DIAGNOSIS_SYSTEM_PROMPT, build_diagnosis_user_prompt
+from .types import DiagnosisResult
 
 logger = logging.getLogger("autopsy.diagnostics.gmi")
 
 
-def _heuristic_diagnosis(bundle: TraceBundle, target_node_id: Optional[str]) -> DiagnosisResult:
+def _heuristic_diagnosis(bundle: dict[str, Any], target_node_id: Optional[str]) -> DiagnosisResult:
     """Local fallback: produce a useful diagnosis from the bundle alone."""
-    # Find first error
+    events = bundle.get("events") or []
+    node_index = bundle.get("node_index") or {}
     if not target_node_id:
-        for ev in bundle.events:
+        for ev in events:
             if ev.get("event_type") == "node_error":
                 target_node_id = ev.get("node_id")
                 break
-    nidx = bundle.node_index.get(target_node_id or "", {})
+    nidx = node_index.get(target_node_id or "", {})
     start = nidx.get("start_event") or {}
     err = nidx.get("error_event") or {}
     err_msg = (err.get("error_message") or "").lower()
@@ -142,7 +143,7 @@ class GMIAgent:
         self.timeout = timeout
 
     async def diagnose(
-        self, bundle: TraceBundle, target_node_id: Optional[str] = None
+        self, bundle: dict[str, Any], target_node_id: Optional[str] = None
     ) -> DiagnosisResult:
         # Always have a fallback ready.
         heuristic = _heuristic_diagnosis(bundle, target_node_id)

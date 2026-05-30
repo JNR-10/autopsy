@@ -1,85 +1,144 @@
-"""Unit tests for @lens.trace decorator."""
+"""Tests for the new @lens.trace decorator wired through the writer."""
+from __future__ import annotations
+
+import asyncio
+import time
 
 import pytest
 
-from autopsy import lens
-from autopsy.core.tracer import (
-    _default_session_dir, get_current_session, list_sessions, load_bundle,
-)
+from autopsy.core.config import LensConfig
+from autopsy.core.decorator import LensDecorator
+from autopsy.core.session import get_writer
 
 
-@pytest.mark.asyncio
-async def test_decorator_basic_success():
-    @lens.trace(name="x")
-    async def f(q):
+@pytest.fixture
+def lens_with_tmp_store(tmp_path, monkeypatch):
+    cfg = LensConfig(session_dir=str(tmp_path), default_sample="all")
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    lens = LensDecorator(config=cfg)
+    yield lens, tmp_path
+    w = get_writer(cfg)
+    w.shutdown(timeout=2.0)
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+
+
+def _sessions(tmp_path):
+    sd = tmp_path / "sessions"
+    if not sd.exists():
+        return []
+    return [p.name for p in sd.iterdir() if p.is_dir() and (p / "manifest.json").exists()]
+
+
+def test_async_success_with_sample_all_writes_session(lens_with_tmp_store):
+    lens, tmp_path = lens_with_tmp_store
+
+    @lens.trace
+    async def agent(q):
         return q + "!"
 
-    out = await f("hi")
+    out = asyncio.run(agent("hi"))
     assert out == "hi!"
-    assert get_current_session() is None
-
-    sessions = list_sessions(_default_session_dir())
-    assert len(sessions) == 1
-    s = sessions[0]
-    assert s["agent_name"] == "x"
-    assert s["status"] == "success"
-    assert s["error_count"] == 0
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not _sessions(tmp_path):
+        time.sleep(0.02)
+    assert len(_sessions(tmp_path)) == 1
 
 
-@pytest.mark.asyncio
-async def test_decorator_nested_dag():
-    @lens.trace(name="child")
-    async def child(x):
-        return x * 2
+def test_async_error_writes_session_under_errors_sampling(tmp_path, monkeypatch):
+    cfg = LensConfig(session_dir=str(tmp_path), default_sample="errors")
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    lens = LensDecorator(config=cfg)
 
-    @lens.trace(name="parent")
-    async def parent(q):
-        a = await child(3)
-        b = await child(5)
-        return a + b
+    @lens.trace
+    async def agent(q):
+        raise RuntimeError("nope")
 
-    out = await parent("hi")
-    assert out == 16
-    assert get_current_session() is None
-
-    sessions = list_sessions(_default_session_dir())
-    sid = sessions[0]["session_id"]
-    bundle = load_bundle(_default_session_dir(), sid)
-    assert bundle.summary["node_count"] == 3
-    # Both children should be linked to parent.
-    parents = {e[0] for e in bundle.dag_edges}
-    children = {e[1] for e in bundle.dag_edges}
-    assert len(parents) == 1
-    assert len(children) == 2
+    with pytest.raises(RuntimeError):
+        asyncio.run(agent("hi"))
+    w = get_writer(cfg)
+    w.shutdown(timeout=2.0)
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    sd = tmp_path / "sessions"
+    rows = [p for p in sd.iterdir() if (p / "manifest.json").exists()] if sd.exists() else []
+    assert len(rows) == 1
 
 
-@pytest.mark.asyncio
-async def test_decorator_propagates_exceptions_and_emits_error_event():
-    @lens.trace(name="boom")
-    async def boom():
-        raise ValueError("nope")
+def test_async_success_writes_nothing_under_errors_sampling(tmp_path, monkeypatch):
+    cfg = LensConfig(session_dir=str(tmp_path), default_sample="errors")
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    lens = LensDecorator(config=cfg)
 
-    with pytest.raises(ValueError):
-        await boom()
+    @lens.trace
+    async def agent(q):
+        return "ok"
 
-    assert get_current_session() is None
-    bundle = load_bundle(
-        _default_session_dir(),
-        list_sessions(_default_session_dir())[0]["session_id"])
-    types = [e["event_type"] for e in bundle.events]
-    assert "node_error" in types
-    assert bundle.summary["error_count"] >= 1
-    assert bundle.summary["status"] == "error"
+    asyncio.run(agent("hi"))
+    w = get_writer(cfg)
+    w.shutdown(timeout=2.0)
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    sd = tmp_path / "sessions"
+    assert not sd.exists() or not list(sd.iterdir())
 
 
-@pytest.mark.asyncio
-async def test_decorator_no_session_leak_between_runs():
-    @lens.trace(name="solo")
-    async def solo():
-        return 1
+def test_sync_function_does_not_call_asyncio_run(tmp_path, monkeypatch):
+    cfg = LensConfig(session_dir=str(tmp_path), default_sample="all")
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    lens = LensDecorator(config=cfg)
 
-    await solo()
-    assert get_current_session() is None
-    await solo()
-    assert get_current_session() is None
-    assert len(list_sessions(_default_session_dir())) == 2
+    @lens.trace
+    def agent(q):
+        return q.upper()
+
+    real_run = asyncio.run
+    called = {"n": 0}
+
+    def fake_run(*a, **k):
+        called["n"] += 1
+        return real_run(*a, **k)
+
+    monkeypatch.setattr(asyncio, "run", fake_run)
+    out = agent("hi")
+    assert out == "HI"
+    assert called["n"] == 0
+    w = get_writer(cfg)
+    w.shutdown(timeout=2.0)
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+
+
+def test_sample_off_is_a_noop(tmp_path, monkeypatch):
+    cfg = LensConfig(session_dir=str(tmp_path))
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    lens = LensDecorator(config=cfg)
+
+    @lens.trace(sample="off")
+    async def agent(q):
+        return q
+
+    asyncio.run(agent("hi"))
+    w = get_writer(cfg)
+    w.shutdown(timeout=2.0)
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    sd = tmp_path / "sessions"
+    assert not sd.exists() or not list(sd.iterdir())
+
+
+def test_nested_decorated_calls_share_one_session(tmp_path, monkeypatch):
+    cfg = LensConfig(session_dir=str(tmp_path), default_sample="all")
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    lens = LensDecorator(config=cfg)
+
+    @lens.trace
+    async def inner(q):
+        return q
+
+    @lens.trace
+    async def outer(q):
+        return await inner(q)
+
+    asyncio.run(outer("hi"))
+    w = get_writer(cfg)
+    w.shutdown(timeout=2.0)
+    monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
+    sd = tmp_path / "sessions"
+    rows = [p for p in sd.iterdir() if (p / "manifest.json").exists()]
+    assert len(rows) == 1

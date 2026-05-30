@@ -5,7 +5,7 @@ import time
 
 
 from autopsy.core.config import LensConfig
-from autopsy.core.events_v2 import EventKind, LogEvent
+from autopsy.core.events import EventKind, LogEvent
 from autopsy.core.writer import Writer
 
 

@@ -7,7 +7,7 @@ import pytest
 
 from autopsy.core.compat import read_v1_bundle
 from autopsy.core.config import LensConfig
-from autopsy.core.events_v2 import (
+from autopsy.core.events import (
     AgentEndEvent,
     AgentStartEvent,
     ErrorEvent,

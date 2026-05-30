@@ -19,8 +19,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from autopsy.core.compat import LegacyBundleReader
+from autopsy.core.config import default_session_dir
 from autopsy.core.replay import ReplayEngine
-from autopsy.core.tracer import _default_session_dir, list_sessions, load_bundle
 
 from .static_fallback import FALLBACK_HTML, FALLBACK_JS
 from .ws_manager import ws_manager
@@ -31,7 +32,13 @@ VERSION = "0.1.0"
 
 
 def _session_dir() -> Path:
-    return _default_session_dir()
+    return default_session_dir()
+
+
+def _bundle_reader() -> LegacyBundleReader:
+    sd = _session_dir()
+    root = sd.parent if sd.name == "sessions" else sd
+    return LegacyBundleReader(root=root)
 
 
 class DiagnoseRequest(BaseModel):
@@ -77,13 +84,13 @@ def create_app() -> FastAPI:
             "status": "ok",
             "version": VERSION,
             "session_dir": str(sess_dir),
-            "sessions_count": len(list_sessions(sess_dir)),
+            "sessions_count": len(_bundle_reader().list()),
         }
 
     @app.get("/api/sessions")
     async def get_sessions() -> JSONResponse:
         try:
-            sessions = list_sessions(_session_dir())
+            sessions = _bundle_reader().list()
         except Exception:
             logger.exception("get_sessions failed")
             sessions = []
@@ -91,30 +98,30 @@ def create_app() -> FastAPI:
 
     @app.get("/api/sessions/{session_id}")
     async def get_session(session_id: str) -> JSONResponse:
-        bundle = load_bundle(_session_dir(), session_id)
+        bundle = _bundle_reader().load(session_id)
         if bundle is None:
             raise HTTPException(status_code=404, detail="session not found")
         return JSONResponse({
-            "session_id": bundle.session_id,
-            "created_at": bundle.created_at,
-            "agent_name": bundle.agent_name,
-            "input_query": bundle.input_query,
-            "agent_module_path": bundle.agent_module_path,
-            "agent_fn_name": bundle.agent_fn_name,
-            "events": bundle.events,
-            "dag_edges": bundle.dag_edges,
-            "node_index": bundle.node_index,
-            "summary": bundle.summary,
+            "session_id": bundle["session_id"],
+            "created_at": bundle["created_at"],
+            "agent_name": bundle["agent_name"],
+            "input_query": bundle["input_query"],
+            "agent_module_path": bundle["agent_module_path"],
+            "agent_fn_name": bundle["agent_fn_name"],
+            "events": bundle["events"],
+            "dag_edges": bundle["dag_edges"],
+            "node_index": bundle["node_index"],
+            "summary": bundle["summary"],
         })
 
     @app.get("/api/sessions/{session_id}/dag")
     async def get_session_dag(session_id: str) -> JSONResponse:
-        bundle = load_bundle(_session_dir(), session_id)
+        bundle = _bundle_reader().load(session_id)
         if bundle is None:
             raise HTTPException(status_code=404, detail="session not found")
         # Compact node index for DAG rendering.
         nodes = []
-        for nid, ni in bundle.node_index.items():
+        for nid, ni in bundle["node_index"].items():
             start = ni.get("start_event") or {}
             end = ni.get("end_event") or {}
             err = ni.get("error_event") or {}
@@ -128,15 +135,15 @@ def create_app() -> FastAPI:
                 "status": "error" if err else ("ok" if end else "running"),
             })
         return JSONResponse({
-            "session_id": bundle.session_id,
+            "session_id": bundle["session_id"],
             "nodes": nodes,
-            "edges": bundle.dag_edges,
-            "summary": bundle.summary,
+            "edges": bundle["dag_edges"],
+            "summary": bundle["summary"],
         })
 
     @app.post("/api/sessions/{session_id}/diagnose")
     async def diagnose(session_id: str, req: DiagnoseRequest) -> JSONResponse:
-        bundle = load_bundle(_session_dir(), session_id)
+        bundle = _bundle_reader().load(session_id)
         if bundle is None:
             raise HTTPException(status_code=404, detail="session not found")
         try:
@@ -162,7 +169,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/sessions/{session_id}/replay")
     async def replay(session_id: str, req: ReplayRequest) -> JSONResponse:
-        bundle = load_bundle(_session_dir(), session_id)
+        bundle = _bundle_reader().load(session_id)
         if bundle is None:
             raise HTTPException(status_code=404, detail="session not found")
         engine = ReplayEngine(bundle)
@@ -324,7 +331,7 @@ def create_app() -> FastAPI:
             try:
                 await ws.send_text(json.dumps({
                     "type": "sessions_list",
-                    "data": list_sessions(_session_dir()),
+                    "data": _bundle_reader().list(),
                 }))
             except Exception:
                 pass

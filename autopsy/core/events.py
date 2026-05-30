@@ -1,185 +1,182 @@
-"""Data models for all events in the autopsy trace.
+"""Pydantic v2 event models for the capture layer (schema version 1).
 
-Every event emitted by the decorator, interceptor, or diagnostics flows through
-these dataclasses. They serialize cleanly to JSON via `dataclasses.asdict` and
-round-trip safely.
+These models replace the dataclass-based models in `events.py`. They live
+under a `_v2` filename until phase 7, at which point this file becomes
+`events.py`. The original models keep working alongside this one so the
+dashboard, diagnostics, and replay engine continue to consume the existing
+`TraceBundle` shape until the bilingual `LegacyBundleReader` is in place.
 
-The TypeScript types in `dashboard/src/types.ts` must mirror these exactly.
+Invariants:
+- Every event carries the BaseEvent envelope: event_id, parent_id,
+  session_id, trace_id, timestamp_ns, kind, status, attributes.
+- `kind` is a closed enum at schema version 1.
+- All models use ConfigDict(extra="forbid") so typos are caught early.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
-from uuid import uuid4
-import time
+from enum import Enum
+from typing import Any, Literal
 
-EventType = Literal[
-    "session_start",
-    "session_end",
-    "node_start",
-    "node_end",
-    "node_error",
-    "llm_request",
-    "llm_response",
-    "tool_call",
-    "tool_result",
-    "agent_handoff",
-]
+from pydantic import BaseModel, ConfigDict, Field
 
 
-@dataclass
-class BaseEvent:
-    event_id: str = field(default_factory=lambda: str(uuid4()))
-    session_id: str = ""
-    timestamp: float = field(default_factory=time.time)
-    event_type: EventType = "node_start"
+class EventKind(str, Enum):
+    SESSION_START = "session_start"
+    SESSION_END = "session_end"
+    AGENT_START = "agent_start"
+    AGENT_END = "agent_end"
+    LLM_REQUEST = "llm_request"
+    LLM_RESPONSE = "llm_response"
+    TOOL_CALL_START = "tool_call_start"
+    TOOL_CALL_END = "tool_call_end"
+    ERROR = "error"
+    LOG = "log"
+    ATTACHMENT_REF = "attachment_ref"
+    DETECTOR_VERDICT = "detector_verdict"
 
 
-@dataclass
+Status = Literal["ok", "error", "unset"]
+
+
+class BaseEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    parent_id: str | None = None
+    session_id: str
+    trace_id: str
+    timestamp_ns: int
+    kind: EventKind
+    status: Status = "unset"
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
 class SessionStartEvent(BaseEvent):
-    event_type: EventType = "session_start"
-    agent_name: str = ""
+    agent_name: str
     input_query: str = ""
-    metadata: dict = field(default_factory=dict)
+    wall_clock_ns: int
+    monotonic_ns: int
+    autopsy_format_version: int = 1
 
 
-@dataclass
-class NodeStartEvent(BaseEvent):
-    event_type: EventType = "node_start"
-    node_id: str = ""
-    node_type: str = ""  # "llm" | "tool" | "agent" | "user"
-    node_name: str = ""
-    parent_node_id: Optional[str] = None
-    depth: int = 0
-    input_data: Any = None
+class SessionEndEvent(BaseEvent):
+    duration_ms: float
+    event_count: int
+    dropped_events: int
+    final_status: Literal["ok", "error", "partial"]
 
 
-@dataclass
-class NodeEndEvent(BaseEvent):
-    event_type: EventType = "node_end"
-    node_id: str = ""
-    duration_ms: float = 0
-    output_data: Any = None
+class AgentStartEvent(BaseEvent):
+    agent_name: str
+    role: str = "agent"
+    input_preview: str = ""
+
+
+class AgentEndEvent(BaseEvent):
+    duration_ms: float
+    output_preview: str = ""
     output_hash: str = ""
 
 
-@dataclass
-class NodeErrorEvent(BaseEvent):
-    event_type: EventType = "node_error"
-    node_id: str = ""
-    error_type: str = ""
-    error_message: str = ""
-    traceback: str = ""
-    duration_ms: float = 0
-
-
-@dataclass
 class LLMRequestEvent(BaseEvent):
-    event_type: EventType = "llm_request"
-    node_id: str = ""
-    model: str = ""
-    messages: list[dict] = field(default_factory=list)
+    model: str
+    messages: list[dict[str, Any]] = Field(default_factory=list)
     temperature: float = 1.0
     max_tokens: int = 0
-    tools: list[dict] = field(default_factory=list)
+    tools: list[dict[str, Any]] = Field(default_factory=list)
     prompt_tokens_estimate: int = 0
 
 
-@dataclass
 class LLMResponseEvent(BaseEvent):
-    event_type: EventType = "llm_response"
-    node_id: str = ""
-    model: str = ""
+    model: str
     content: str = ""
-    tool_calls: list[dict] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
-    latency_ms: float = 0
+    latency_ms: float = 0.0
     finish_reason: str = ""
 
 
-@dataclass
-class ToolCallEvent(BaseEvent):
-    event_type: EventType = "tool_call"
-    node_id: str = ""
-    tool_name: str = ""
-    tool_args: dict = field(default_factory=dict)
+class ToolCallStartEvent(BaseEvent):
+    tool_name: str
+    tool_args: dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass
-class ToolResultEvent(BaseEvent):
-    event_type: EventType = "tool_result"
-    node_id: str = ""
-    tool_name: str = ""
+class ToolCallEndEvent(BaseEvent):
+    tool_name: str
     result: Any = None
-    error: Optional[str] = None
-    latency_ms: float = 0
+    error: str | None = None
+    duration_ms: float = 0.0
 
 
-@dataclass
-class AgentHandoffEvent(BaseEvent):
-    event_type: EventType = "agent_handoff"
-    from_node_id: str = ""
-    to_agent_name: str = ""
-    handoff_data: Any = None
+class ErrorEvent(BaseEvent):
+    error_type: str
+    error_message: str
+    traceback: str
 
 
-@dataclass
-class SessionEndEvent(BaseEvent):
-    event_type: EventType = "session_end"
-    total_duration_ms: float = 0
-    total_tokens: int = 0
-    total_cost_usd: float = 0
-    node_count: int = 0
-    error_count: int = 0
-    status: Literal["success", "error", "partial"] = "success"
+class LogEvent(BaseEvent):
+    name: str
 
 
-@dataclass
-class TraceBundle:
-    """Complete trace persisted to disk as a replay bundle."""
-
-    session_id: str = ""
-    created_at: float = 0.0
-    agent_name: str = ""
-    input_query: str = ""
-    agent_module_path: str = ""
-    agent_fn_name: str = ""
-    events: list[dict] = field(default_factory=list)
-    dag_edges: list[list] = field(default_factory=list)  # [[parent, child], ...]
-    node_index: dict = field(default_factory=dict)
-    replay_checkpoints: dict = field(default_factory=dict)
-    summary: dict = field(default_factory=dict)
+class AttachmentRefEvent(BaseEvent):
+    field_path: str
+    sha256: str
+    size_bytes: int
+    preview: str = ""
 
 
-@dataclass
-class DiagnosisResult:
-    """Canonical diagnosis returned by GMIAgent/GeminiAgent."""
-
-    root_cause: str = ""
-    affected_node_id: str = ""
-    affected_node_name: str = ""
-    error_category: str = "other"
-    fix_suggestion: str = ""
-    fix_code_snippet: str = ""
-    confidence: float = 0.0
-    latency_insight: str = ""
-    estimated_latency_savings_ms: float = 0.0
-    model_swap_suggestion: str = ""
-    raw_response: str = ""
+class DetectorVerdictEvent(BaseEvent):
+    detector_name: str
+    verdict: Literal["pass", "fail", "warn"]
+    score: float = 0.0
+    reason: str = ""
 
 
-# Helper: map EventType -> dataclass for safe deserialization
-EVENT_TYPE_TO_CLASS: dict[str, type] = {
-    "session_start": SessionStartEvent,
-    "session_end": SessionEndEvent,
-    "node_start": NodeStartEvent,
-    "node_end": NodeEndEvent,
-    "node_error": NodeErrorEvent,
-    "llm_request": LLMRequestEvent,
-    "llm_response": LLMResponseEvent,
-    "tool_call": ToolCallEvent,
-    "tool_result": ToolResultEvent,
-    "agent_handoff": AgentHandoffEvent,
+_KIND_TO_CLASS: dict[EventKind, type[BaseEvent]] = {
+    EventKind.SESSION_START: SessionStartEvent,
+    EventKind.SESSION_END: SessionEndEvent,
+    EventKind.AGENT_START: AgentStartEvent,
+    EventKind.AGENT_END: AgentEndEvent,
+    EventKind.LLM_REQUEST: LLMRequestEvent,
+    EventKind.LLM_RESPONSE: LLMResponseEvent,
+    EventKind.TOOL_CALL_START: ToolCallStartEvent,
+    EventKind.TOOL_CALL_END: ToolCallEndEvent,
+    EventKind.ERROR: ErrorEvent,
+    EventKind.LOG: LogEvent,
+    EventKind.ATTACHMENT_REF: AttachmentRefEvent,
+    EventKind.DETECTOR_VERDICT: DetectorVerdictEvent,
 }
+
+
+def event_from_dict(payload: dict[str, Any]) -> BaseEvent:
+    """Construct the right event subclass from a dict by inspecting `kind`."""
+    raw_kind = payload.get("kind")
+    try:
+        kind = EventKind(raw_kind)
+    except ValueError as exc:
+        raise ValueError(f"unknown event kind: {raw_kind!r}") from exc
+    cls = _KIND_TO_CLASS[kind]
+    return cls.model_validate(payload)
+
+
+class Manifest(BaseModel):
+    """Per-session manifest.json. Written at session start, rewritten at finalize."""
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    agent_name: str
+    start_time_ns: int
+    end_time_ns: int | None = None
+    duration_ms: float | None = None
+    status: Literal["live", "ok", "error", "partial"]
+    error_type: str | None = None
+    event_count: int = 0
+    dropped_events: int = 0
+    pinned: bool = False
+    autopsy_format_version: int = 1
+    autopsy_version: str
+    wall_clock_ns_at_start: int
+    monotonic_ns_at_start: int
+    extra: dict[str, Any] = Field(default_factory=dict)

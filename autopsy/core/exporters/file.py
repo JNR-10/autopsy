@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Iterable
 
-from ..events_v2 import BaseEvent, Manifest
+from ..events import BaseEvent, Manifest
 
 logger = logging.getLogger("autopsy.exporter.file")
 

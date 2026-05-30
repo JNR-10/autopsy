@@ -26,7 +26,7 @@ def test_record_event_enqueues_through_writer(tmp_path):
         s = Session.begin(
             config=cfg, agent_name="a", sample=SampleMode.ALL, writer=writer,
         )
-        from autopsy.core.events_v2 import EventKind, LogEvent
+        from autopsy.core.events import EventKind, LogEvent
         ev = LogEvent(
             event_id="01HXY000000000000000000001",
             parent_id=None,

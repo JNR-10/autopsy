@@ -47,8 +47,15 @@ def _get_host() -> str:
 
 
 def _session_dir() -> Path:
-    from autopsy.core.tracer import _default_session_dir
-    return _default_session_dir()
+    from autopsy.core.config import default_session_dir
+    return default_session_dir()
+
+
+def _bundle_reader():
+    from autopsy.core.compat import LegacyBundleReader
+    sd = _session_dir()
+    root = sd.parent if sd.name == "sessions" else sd
+    return LegacyBundleReader(root=root)
 
 
 @click.group()
@@ -149,8 +156,7 @@ def _start_server_and_run(script: str, *, port: int, host: str, open_browser: bo
 
     # Print session summary.
     try:
-        from autopsy.core.tracer import list_sessions
-        sessions = list_sessions(_session_dir())
+        sessions = _bundle_reader().list()
         if sessions:
             console.print(
                 f"\n[green]✓[/green] {len(sessions)} session(s) recorded. "
@@ -170,8 +176,7 @@ def _start_server_and_run(script: str, *, port: int, host: str, open_browser: bo
 @cli.command("sessions")
 def cmd_sessions() -> None:
     """List recorded sessions."""
-    from autopsy.core.tracer import list_sessions
-    sessions = list_sessions(_session_dir())
+    sessions = _bundle_reader().list()
     if not sessions:
         console.print(
             "[yellow]No sessions yet. "
@@ -188,18 +193,19 @@ def cmd_sessions() -> None:
     table.add_column("created", style="dim")
     for s in sessions[:50]:
         from datetime import datetime
+        summary = s.get("summary") or {}
         created = datetime.fromtimestamp(s.get("created_at", 0))
-        status = s.get("status", "?")
+        status = summary.get("status", s.get("status", "?"))
         color = "green" if status == "success" else (
             "red" if status == "error" else "yellow")
         table.add_row(
             s.get("session_id", "")[:18],
             s.get("agent_name", "")[:30],
             f"[{color}]{status}[/{color}]",
-            str(s.get("node_count", 0)),
-            str(s.get("error_count", 0)),
-            str(s.get("total_tokens", 0)),
-            str(int(s.get("total_duration_ms", 0))),
+            str(summary.get("node_count", s.get("node_count", 0))),
+            str(summary.get("error_count", s.get("error_count", 0))),
+            str(summary.get("total_tokens", s.get("total_tokens", 0))),
+            str(int(summary.get("total_duration_ms", s.get("total_duration_ms", 0)))),
             created.strftime("%Y-%m-%d %H:%M:%S"),
         )
     console.print(table)
@@ -212,18 +218,16 @@ def cmd_sessions() -> None:
               type=click.Choice(["auto", "gmi", "gemini"]))
 def cmd_diagnose(session_id: str, node_id: str, model: str) -> None:
     """Diagnose a saved session with the AI debugger."""
-    from autopsy.core.tracer import load_bundle
     from autopsy.diagnostics.gemini_agent import GeminiAgent, estimate_bundle_tokens
     from autopsy.diagnostics.gmi_agent import GMIAgent
 
-    bundle = load_bundle(_session_dir(), session_id)
+    bundle = _bundle_reader().load(session_id)
     if bundle is None:
         # Try partial match.
-        from autopsy.core.tracer import list_sessions
-        candidates = [s for s in list_sessions(_session_dir())
+        candidates = [s for s in _bundle_reader().list()
                       if s.get("session_id", "").startswith(session_id)]
         if len(candidates) == 1:
-            bundle = load_bundle(_session_dir(), candidates[0]["session_id"])
+            bundle = _bundle_reader().load(candidates[0]["session_id"])
         elif len(candidates) > 1:
             console.print(f"[red]ambiguous session prefix '{session_id}' — "
                           f"{len(candidates)} matches[/red]")
@@ -269,14 +273,13 @@ def cmd_diagnose(session_id: str, node_id: str, model: str) -> None:
 def cmd_replay(session_id: str, node_id: str, fix: str) -> None:
     """Simulated replay of a saved session from the first error node."""
     from autopsy.core.replay import ReplayEngine
-    from autopsy.core.tracer import load_bundle
 
-    bundle = load_bundle(_session_dir(), session_id)
+    bundle = _bundle_reader().load(session_id)
     if bundle is None:
         console.print(f"[red]session {session_id!r} not found[/red]")
         return
     if not node_id:
-        for ev in bundle.events:
+        for ev in bundle["events"]:
             if ev.get("event_type") == "node_error":
                 node_id = ev.get("node_id")
                 break
@@ -334,17 +337,13 @@ def cmd_clean(all_: bool) -> None:
 @click.option("--out", default="autopsy-export.json")
 def cmd_deploy(out: str) -> None:
     """Export sessions as a shareable JSON bundle (v1 fallback)."""
-    from autopsy.core.tracer import list_sessions
-    sd = _session_dir()
-    sessions = list_sessions(sd)
+    reader = _bundle_reader()
+    sessions = reader.list()
     bundles = []
     for s in sessions:
-        p = sd / f"{s['session_id']}.json"
-        if p.exists():
-            try:
-                bundles.append(json.loads(p.read_text()))
-            except Exception:
-                pass
+        b = reader.load(s["session_id"])
+        if b is not None:
+            bundles.append(b)
     Path(out).write_text(json.dumps(
         {"version": "1", "sessions": bundles}, default=str))
     console.print(f"[green]exported {len(bundles)} sessions to {out}[/green]")

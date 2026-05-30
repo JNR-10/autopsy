@@ -9,7 +9,7 @@ import pytest
 
 from autopsy.core.compat import LegacyBundleReader
 from autopsy.core.config import LensConfig
-from autopsy.core.events_v2 import AgentEndEvent, AgentStartEvent, EventKind
+from autopsy.core.events import AgentEndEvent, AgentStartEvent, EventKind
 from autopsy.core.store.local_fs import LocalFilesystemStore
 from autopsy.core.writer import SampleMode, Writer
 

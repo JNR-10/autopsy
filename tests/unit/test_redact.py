@@ -1,7 +1,7 @@
 """Unit tests for the default redactor."""
 from __future__ import annotations
 
-from autopsy.core.events_v2 import EventKind, LLMRequestEvent, LogEvent
+from autopsy.core.events import EventKind, LLMRequestEvent, LogEvent
 from autopsy.core.redact import default_redactor, scrub_secrets
 
 

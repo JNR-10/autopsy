@@ -7,7 +7,7 @@ import types
 
 from autopsy.core.config import LensConfig
 from autopsy.core.context import set_session
-from autopsy.core.interceptor import InterceptorV2Manager
+from autopsy.core.interceptor import InterceptorManager
 from autopsy.core.session import Session, get_writer
 from autopsy.core.writer import SampleMode
 
@@ -39,7 +39,7 @@ def test_no_op_when_openai_missing(monkeypatch):
         "autopsy.core.interceptor._import_openai_targets",
         lambda: None,
     )
-    mgr = InterceptorV2Manager()
+    mgr = InterceptorManager()
     mgr.install()
     mgr.uninstall()
 
@@ -56,7 +56,7 @@ def test_async_call_emits_llm_request_response(tmp_path, monkeypatch):
         lambda: (async_target, sync_target),
     )
 
-    mgr = InterceptorV2Manager()
+    mgr = InterceptorManager()
     mgr.install()
     try:
         s = Session.begin(config=cfg, agent_name="a", sample=SampleMode.ALL)
@@ -93,7 +93,7 @@ def test_sync_call_emits_llm_request_response(tmp_path, monkeypatch):
         lambda: (async_target, sync_target),
     )
 
-    mgr = InterceptorV2Manager()
+    mgr = InterceptorManager()
     mgr.install()
     try:
         s = Session.begin(config=cfg, agent_name="a", sample=SampleMode.ALL)
@@ -126,7 +126,7 @@ def test_passthrough_when_diagnostics_call_is_set(tmp_path, monkeypatch):
         lambda: (async_target, sync_target),
     )
 
-    mgr = InterceptorV2Manager()
+    mgr = InterceptorManager()
     mgr.install()
     try:
         s = Session.begin(config=cfg, agent_name="a", sample=SampleMode.ALL)

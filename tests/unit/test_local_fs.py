@@ -4,7 +4,7 @@ from __future__ import annotations
 import gzip
 import json
 
-from autopsy.core.events_v2 import (
+from autopsy.core.events import (
     AgentStartEvent,
     EventKind,
     LogEvent,

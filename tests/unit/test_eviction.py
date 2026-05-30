@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 
-from autopsy.core.events_v2 import AgentStartEvent, EventKind, Manifest
+from autopsy.core.events import AgentStartEvent, EventKind, Manifest
 from autopsy.core.store.local_fs import LocalFilesystemStore
 
 

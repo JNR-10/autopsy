@@ -15,7 +15,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from ..events_v2 import Manifest
+from ..events import Manifest
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (

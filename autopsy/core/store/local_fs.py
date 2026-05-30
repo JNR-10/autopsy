@@ -28,7 +28,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Iterable
 
-from ..events_v2 import BaseEvent, Manifest
+from ..events import BaseEvent, Manifest
 from .sqlite_index import SQLiteIndex
 
 logger = logging.getLogger("autopsy.store")
