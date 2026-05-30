@@ -102,13 +102,12 @@ def _load_events(session_dir):
     gz = session_dir / "events.jsonl.gz"
     plain = session_dir / "events.jsonl"
     if gz.exists():
-        opener = lambda: gzip.open(gz, "rt")
-    elif plain.exists():
-        opener = lambda: plain.open("r")
-    else:
-        return []
-    with opener() as f:
-        return [json.loads(line) for line in f if line.strip()]
+        with gzip.open(gz, "rt") as f:
+            return [json.loads(line) for line in f if line.strip()]
+    if plain.exists():
+        with plain.open("r") as f:
+            return [json.loads(line) for line in f if line.strip()]
+    return []
 
 
 def _emit_tool_start(tool_name: str) -> None:
