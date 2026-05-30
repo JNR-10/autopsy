@@ -5,11 +5,13 @@ diagnosis if the API is unavailable.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
 from typing import Any, Optional
 
-from .gmi_agent import _extract_json, _heuristic_diagnosis
+from .config import DiagnoseConfig, load_diagnose_config_from_env
+from .gmi_agent import _extract_json
+from .heuristic import diagnose_heuristic
 from .prompts import DIAGNOSIS_SYSTEM_PROMPT, build_diagnosis_user_prompt
 from .types import DiagnosisResult
 
@@ -17,35 +19,46 @@ logger = logging.getLogger("autopsy.diagnostics.gemini")
 
 
 class GeminiAgent:
+    @property
+    def name(self) -> str:
+        return "gemini"
+
     def __init__(
         self,
+        config: DiagnoseConfig | None = None,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
-        timeout: float = 60.0,
+        timeout: Optional[float] = None,
     ):
-        self.api_key = api_key or os.environ.get("GOOGLE_AI_API_KEY", "")
-        self.model = model or os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
-        self.timeout = timeout
+        cfg = config or load_diagnose_config_from_env()
+        self.api_key = api_key if api_key is not None else cfg.google_ai_api_key
+        self.model = model if model is not None else cfg.gemini_model
+        self.timeout = timeout if timeout is not None else cfg.gemini_timeout_s
 
     async def diagnose(
         self, bundle: dict[str, Any], target_node_id: Optional[str] = None
     ) -> DiagnosisResult:
-        heuristic = _heuristic_diagnosis(bundle, target_node_id)
+        heuristic = diagnose_heuristic(bundle, target_node_id)
         if not self.api_key:
             logger.warning("autopsy: GOOGLE_AI_API_KEY not set; using heuristic")
             return heuristic
         try:
             import google.generativeai as genai
+        except ImportError:
+            logger.warning(
+                "autopsy: google-generativeai not installed; using heuristic"
+            )
+            return heuristic
+        try:
             genai.configure(api_key=self.api_key)
             model = genai.GenerativeModel(
                 model_name=self.model,
                 system_instruction=DIAGNOSIS_SYSTEM_PROMPT,
             )
             user_prompt = build_diagnosis_user_prompt(bundle, target_node_id)
-            # generate_content is sync; wrap in to_thread to avoid blocking.
-            import asyncio
             resp = await asyncio.to_thread(
-                model.generate_content, user_prompt,
+                model.generate_content,
+                user_prompt,
                 generation_config={"temperature": 0.2, "max_output_tokens": 900},
             )
             raw = ""
@@ -84,6 +97,7 @@ class GeminiAgent:
 def estimate_bundle_tokens(bundle: dict[str, Any]) -> int:
     """Rough size estimate (chars/4) of the full bundle as text."""
     import json
+
     try:
         return len(json.dumps(bundle.get("events", []), default=str)) // 4
     except Exception:
