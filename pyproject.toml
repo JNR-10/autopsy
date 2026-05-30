@@ -51,3 +51,8 @@ exclude = ["autopsy.server.static*", "autopsy.server.routes*"]
 [tool.setuptools.package-data]
 "autopsy.server" = ["static/**/*", "_dashboard.html", "_dashboard_part1.js",
                     "_dashboard_part2.js", "_dashboard_part3.js"]
+
+[tool.pytest.ini_options]
+markers = ["slow: long-running soak tests (opt-in)"]
+addopts = "-m 'not slow'"
+testpaths = ["tests/perf", "tests/unit", "tests/integration"]

@@ -19,7 +19,7 @@ import time
 from typing import Optional
 
 from .config import LensConfig
-from .events import BaseEvent
+from .events import BaseEvent, EventKind
 from .store.local_fs import LocalFilesystemStore
 from .ulid import new_ulid
 from .writer import SampleMode, Writer
@@ -94,15 +94,38 @@ class Session:
         agent_name: str,
         sample: SampleMode,
         head_keep: bool,
-        writer: Writer,
+        writer: Writer | None,
+        config: LensConfig,
         start_perf_ns: int,
+        wall_ns: int,
     ):
         self.session_id = session_id
         self.agent_name = agent_name
         self.sample = sample
         self.head_keep = head_keep
         self.writer = writer
+        self._config = config
         self.start_perf_ns = start_perf_ns
+        self._wall_ns = wall_ns
+
+    def _activate_writer(self) -> Writer:
+        if self.writer is not None:
+            return self.writer
+        w = get_writer(self._config)
+        try:
+            w.declare_session(
+                self.session_id,
+                sample=self.sample,
+                agent_name=self.agent_name,
+                start_ns=self._wall_ns,
+                head_keep=self.head_keep,
+                wall_ns=self._wall_ns,
+                monotonic_ns=self.start_perf_ns,
+            )
+        except Exception:
+            logger.exception("autopsy: declare_session failed")
+        self.writer = w
+        return w
 
     @classmethod
     def begin(
@@ -114,25 +137,29 @@ class Session:
         writer: Writer | None = None,
     ) -> "Session":
         mode, head_keep = _resolve_sample(sample, config.default_sample)
-        w = writer if writer is not None else get_writer(config)
         sid = new_ulid()
         now_perf = time.perf_counter_ns()
         wall = time.time_ns()
-        try:
-            w.declare_session(
-                sid,
-                sample=mode,
-                agent_name=agent_name,
-                start_ns=wall,
-                head_keep=head_keep,
-                wall_ns=wall,
-                monotonic_ns=now_perf,
-            )
-        except Exception:
-            logger.exception("autopsy: declare_session failed")
+        defer_writer = mode is SampleMode.ERRORS and not head_keep
+        w: Writer | None = None
+        if not defer_writer:
+            w = writer if writer is not None else get_writer(config)
+            try:
+                w.declare_session(
+                    sid,
+                    sample=mode,
+                    agent_name=agent_name,
+                    start_ns=wall,
+                    head_keep=head_keep,
+                    wall_ns=wall,
+                    monotonic_ns=now_perf,
+                )
+            except Exception:
+                logger.exception("autopsy: declare_session failed")
         return cls(
             session_id=sid, agent_name=agent_name, sample=mode,
-            head_keep=head_keep, writer=w, start_perf_ns=now_perf,
+            head_keep=head_keep, writer=w, config=config,
+            start_perf_ns=now_perf, wall_ns=wall,
         )
 
     def record_event(self, ev: BaseEvent) -> None:
@@ -142,11 +169,18 @@ class Session:
                     ev = ev.model_copy(update={"session_id": self.session_id})
                 except Exception:
                     return
-            self.writer.enqueue(ev)
+            w = self.writer
+            if w is None:
+                if self.sample is SampleMode.ERRORS and ev.kind is not EventKind.ERROR:
+                    return
+                w = self._activate_writer()
+            w.enqueue(ev)
         except Exception:
             logger.exception("autopsy: record_event failed")
 
     def end(self, *, outcome: str, error_type: str | None = None) -> None:
+        if self.writer is None:
+            return
         try:
             self.writer.end_session(self.session_id, outcome=outcome, error_type=error_type)
         except Exception:

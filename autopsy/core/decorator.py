@@ -4,12 +4,14 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import time
 
 from .config import LensConfig as _LensConfig
 from .context import current_parent_id, current_session, set_parent_id, set_session
 from .events import AgentEndEvent, AgentStartEvent, ErrorEvent, EventKind
-from .session import Session as _Session
+from .session import Session as _Session, _resolve_sample
 from .ulid import new_ulid
+from .writer import SampleMode
 
 logger = logging.getLogger("autopsy.decorator")
 
@@ -42,9 +44,66 @@ class LensDecorator:
             return lambda f: self.trace(f, sample=sample, name=name)
         return self._wrap(fn, sample=sample, name=name)
 
+    def _errors_on_exception(
+        self, agent_name, sample, args, kwargs, exc,
+    ) -> None:
+        session = _Session.begin(
+            config=self.config, agent_name=agent_name, sample=sample,
+        )
+        set_session(session)
+        session._activate_writer()
+        node_id = self._emit_agent_start(
+            session, agent_name, _preview(args[0] if args else kwargs),
+        )
+        parent_token = set_parent_id(node_id)
+        start = time.perf_counter()
+        self._finish_errors_error(
+            session, node_id, parent_token, start, exc, is_root=True,
+        )
+
     def _wrap(self, fn, *, sample, name):
         is_coro = asyncio.iscoroutinefunction(fn)
         agent_name = name or getattr(fn, "__name__", "agent")
+
+        if (
+            is_coro
+            and sample is None
+            and str(self.config.default_sample) == "errors"
+        ):
+            @functools.wraps(fn)
+            async def errors_default_async_wrapper(*args, **kwargs):
+                if current_session() is not None:
+                    return await self._invoke_async(
+                        fn, args, kwargs, sample=sample, agent_name=agent_name,
+                    )
+                try:
+                    return await fn(*args, **kwargs)
+                except Exception as exc:
+                    self._errors_on_exception(
+                        agent_name, sample, args, kwargs, exc,
+                    )
+                    raise
+            return errors_default_async_wrapper
+
+        if (
+            not is_coro
+            and sample is None
+            and str(self.config.default_sample) == "errors"
+        ):
+            @functools.wraps(fn)
+            def errors_default_sync_wrapper(*args, **kwargs):
+                if current_session() is not None:
+                    return self._invoke_sync(
+                        fn, args, kwargs, sample=sample, agent_name=agent_name,
+                    )
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as exc:
+                    self._errors_on_exception(
+                        agent_name, sample, args, kwargs, exc,
+                    )
+                    raise
+            return errors_default_sync_wrapper
 
         if is_coro:
             @functools.wraps(fn)
@@ -80,7 +139,7 @@ class LensDecorator:
                 parent_id=parent_id,
                 session_id=session.session_id,
                 trace_id=session.session_id,
-                timestamp_ns=__import__("time").time_ns(),
+                timestamp_ns=time.time_ns(),
                 kind=EventKind.AGENT_START,
                 agent_name=agent_name,
                 role="agent",
@@ -98,7 +157,7 @@ class LensDecorator:
                 parent_id=parent_id,
                 session_id=session.session_id,
                 trace_id=session.session_id,
-                timestamp_ns=__import__("time").time_ns(),
+                timestamp_ns=time.time_ns(),
                 kind=EventKind.AGENT_END,
                 duration_ms=duration_ms,
                 output_preview=output_preview,
@@ -115,7 +174,7 @@ class LensDecorator:
                 parent_id=node_id,
                 session_id=session.session_id,
                 trace_id=session.session_id,
-                timestamp_ns=__import__("time").time_ns(),
+                timestamp_ns=time.time_ns(),
                 kind=EventKind.ERROR,
                 error_type=type(exc).__name__,
                 error_message=str(exc)[:2000],
@@ -125,64 +184,147 @@ class LensDecorator:
         except Exception:
             pass
 
-    async def _invoke_async(self, fn, args, kwargs, *, sample, agent_name):
-        import time as _t
-        session, is_root = self._begin_or_join(sample, agent_name)
-        node_id = self._emit_agent_start(
-            session, agent_name, _preview(args[0] if args else kwargs),
-        )
-        parent_token = set_parent_id(node_id)
-        start = _t.perf_counter()
+    def _errors_only_fast_path(self, sample) -> bool:
+        if current_session() is not None:
+            return False
+        mode, head_keep = _resolve_sample(sample, self.config.default_sample)
+        return mode is SampleMode.ERRORS and not head_keep
+
+    def _finish_errors_error(
+        self, session, node_id, parent_token, start, exc, *, is_root: bool,
+    ) -> None:
         try:
-            result = await fn(*args, **kwargs)
+            self._emit_error(session, node_id, current_parent_id(), exc)
             self._emit_agent_end(
                 session, node_id, current_parent_id(),
-                (_t.perf_counter() - start) * 1000.0, _preview(result),
+                (time.perf_counter() - start) * 1000.0, "",
             )
+            if is_root:
+                session.end(outcome="error", error_type=type(exc).__name__)
+        finally:
+            if parent_token is not None:
+                set_parent_id(None, token=parent_token)
+            if is_root:
+                set_session(None)
+
+    async def _invoke_async(self, fn, args, kwargs, *, sample, agent_name):
+        if self._errors_only_fast_path(sample):
+            try:
+                return await fn(*args, **kwargs)
+            except Exception as exc:
+                session = _Session.begin(
+                    config=self.config, agent_name=agent_name, sample=sample,
+                )
+                set_session(session)
+                session._activate_writer()
+                node_id = self._emit_agent_start(
+                    session, agent_name, _preview(args[0] if args else kwargs),
+                )
+                parent_token = set_parent_id(node_id)
+                start = time.perf_counter()
+                self._finish_errors_error(
+                    session, node_id, parent_token, start, exc, is_root=True,
+                )
+                raise
+
+        session, is_root = self._begin_or_join(sample, agent_name)
+        track = session.sample is not SampleMode.ERRORS
+        node_id = None
+        parent_token = None
+        if track:
+            node_id = self._emit_agent_start(
+                session, agent_name, _preview(args[0] if args else kwargs),
+            )
+            parent_token = set_parent_id(node_id)
+        start = time.perf_counter()
+        try:
+            result = await fn(*args, **kwargs)
+            if track:
+                self._emit_agent_end(
+                    session, node_id, current_parent_id(),
+                    (time.perf_counter() - start) * 1000.0, _preview(result),
+                )
             if is_root:
                 session.end(outcome="ok")
             return result
         except Exception as exc:
+            if not track:
+                session._activate_writer()
+                node_id = self._emit_agent_start(
+                    session, agent_name, _preview(args[0] if args else kwargs),
+                )
+                parent_token = set_parent_id(node_id)
             self._emit_error(session, node_id, current_parent_id(), exc)
             self._emit_agent_end(
                 session, node_id, current_parent_id(),
-                (_t.perf_counter() - start) * 1000.0, "",
+                (time.perf_counter() - start) * 1000.0, "",
             )
             if is_root:
                 session.end(outcome="error", error_type=type(exc).__name__)
             raise
         finally:
-            set_parent_id(None, token=parent_token)
+            if parent_token is not None:
+                set_parent_id(None, token=parent_token)
             if is_root:
                 set_session(None)
 
     def _invoke_sync(self, fn, args, kwargs, *, sample, agent_name):
-        import time as _t
+        if self._errors_only_fast_path(sample):
+            try:
+                return fn(*args, **kwargs)
+            except Exception as exc:
+                session = _Session.begin(
+                    config=self.config, agent_name=agent_name, sample=sample,
+                )
+                set_session(session)
+                session._activate_writer()
+                node_id = self._emit_agent_start(
+                    session, agent_name, _preview(args[0] if args else kwargs),
+                )
+                parent_token = set_parent_id(node_id)
+                start = time.perf_counter()
+                self._finish_errors_error(
+                    session, node_id, parent_token, start, exc, is_root=True,
+                )
+                raise
+
         session, is_root = self._begin_or_join(sample, agent_name)
-        node_id = self._emit_agent_start(
-            session, agent_name, _preview(args[0] if args else kwargs),
-        )
-        parent_token = set_parent_id(node_id)
-        start = _t.perf_counter()
+        track = session.sample is not SampleMode.ERRORS
+        node_id = None
+        parent_token = None
+        if track:
+            node_id = self._emit_agent_start(
+                session, agent_name, _preview(args[0] if args else kwargs),
+            )
+            parent_token = set_parent_id(node_id)
+        start = time.perf_counter()
         try:
             result = fn(*args, **kwargs)
-            self._emit_agent_end(
-                session, node_id, current_parent_id(),
-                (_t.perf_counter() - start) * 1000.0, _preview(result),
-            )
+            if track:
+                self._emit_agent_end(
+                    session, node_id, current_parent_id(),
+                    (time.perf_counter() - start) * 1000.0, _preview(result),
+                )
             if is_root:
                 session.end(outcome="ok")
             return result
         except Exception as exc:
+            if not track:
+                session._activate_writer()
+                node_id = self._emit_agent_start(
+                    session, agent_name, _preview(args[0] if args else kwargs),
+                )
+                parent_token = set_parent_id(node_id)
             self._emit_error(session, node_id, current_parent_id(), exc)
             self._emit_agent_end(
                 session, node_id, current_parent_id(),
-                (_t.perf_counter() - start) * 1000.0, "",
+                (time.perf_counter() - start) * 1000.0, "",
             )
             if is_root:
                 session.end(outcome="error", error_type=type(exc).__name__)
             raise
         finally:
-            set_parent_id(None, token=parent_token)
+            if parent_token is not None:
+                set_parent_id(None, token=parent_token)
             if is_root:
                 set_session(None)
