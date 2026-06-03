@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cheap event byte estimates for capture/writer buffer caps (`event_bytes` module)
+- `AUTOPSY_MAX_DETECTOR_EVAL_EVENTS` cap for session-end detector input
 - v1 sessions: server builds `node_index` + `dag_edges` from captured events (dashboard latency/detail work on v1)
 - `autopsy replay --live` and dashboard live-replay checkbox; manifest stores `agent_module_path` / checkpoints
 - Demo routes moved to `examples/demo_routes.py` (loaded via `AUTOPSY_DEMO=1`, not shipped in core wheel)
@@ -27,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Default `detector_full_trace` is off; production alerting no longer forces disk tail merge
+- `events_for_detectors()` uses in-memory writer history unless full trace is enabled
+- Agent module metadata resolved at session end (not on every trace entry)
+- Sync/async decorator p99 perf tests moved to `pytest -m slow`
 - `autopsy run` no longer enables demo routes by default; use `autopsy run --demo` or `examples/serve_with_demo.py`
 - Removed `autopsy.demo` from published package; core server has no demo imports
 - Dashboard replay messaging when demo routes are absent (404)

@@ -6,9 +6,6 @@ import functools
 import logging
 import time
 
-import inspect
-from pathlib import Path
-
 from .config import LensConfig as _LensConfig
 from autopsy.detectors.overrides import DetectorCallOverrides
 from .context import current_parent_id, current_session, set_parent_id, set_session
@@ -126,11 +123,7 @@ class LensDecorator:
             detectors=detectors, detector_overrides=overrides,
         )
         if fn is not None:
-            try:
-                session.agent_module_path = str(Path(inspect.getfile(fn)).resolve())
-                session.agent_fn_name = f"{fn.__module__}.{fn.__qualname__}"
-            except Exception:
-                pass
+            session.capture_agent_metadata(fn)
         set_session(session)
         return session, True
 

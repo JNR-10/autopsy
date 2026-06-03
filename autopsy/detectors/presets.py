@@ -16,5 +16,5 @@ def apply_production_alerting(config: Any) -> None:
     apply_profile_to_lens_config(config, STRICT)
     config.promote_on_warn = True
     config.enabled_detectors = list(DEFAULT_ENABLED_DETECTORS) + list(OPTIONAL_DETECTORS)
-    config.detector_full_trace = True
     config.max_detector_ring_events = max(config.max_detector_ring_events, 8192)
+    # Full trace (disk tail merge) is opt-in: AUTOPSY_DETECTOR_FULL_TRACE=1

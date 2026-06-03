@@ -1,6 +1,8 @@
 """p99 overhead per traced call must stay under 5 ms (spec target)."""
 from __future__ import annotations
 
+import pytest
+
 from autopsy.core.config import LensConfig
 from autopsy.core.decorator import LensDecorator
 from autopsy.core.session import get_writer
@@ -8,6 +10,7 @@ from autopsy.core.session import get_writer
 from tests.perf.harness import measure_async_overhead_ms, measure_overhead_ms
 
 
+@pytest.mark.slow
 def test_async_p99_overhead_under_5ms(tmp_path, monkeypatch):
     cfg = LensConfig(
         session_dir=str(tmp_path),
@@ -36,6 +39,7 @@ def test_async_p99_overhead_under_5ms(tmp_path, monkeypatch):
     assert out["p99"] < 5.0, f"p99 overhead {out['p99']:.2f} ms exceeds 5ms target ({out})"
 
 
+@pytest.mark.slow
 def test_sync_p99_overhead_under_5ms(tmp_path, monkeypatch):
     cfg = LensConfig(
         session_dir=str(tmp_path),

@@ -11,7 +11,8 @@ def test_production_alerting_preset():
     apply_production_alerting(c)
     assert c.promote_on_warn is True
     assert "high_latency" in c.enabled_detectors
-    assert c.detector_full_trace is True
+    assert c.detector_full_trace is False
+    assert c.max_detector_ring_events >= 8192
 
 
 def test_env_production_alerting(monkeypatch):

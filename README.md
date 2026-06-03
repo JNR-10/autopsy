@@ -117,6 +117,18 @@ cfg = load_config()
 
 **Production tip:** leave `AUTOPSY_SAMPLE=errors` (default). **Local dev:** set `AUTOPSY_SAMPLE=all` while iterating.
 
+**Performance (CLI / capture):**
+
+| Variable | Default | When to change |
+|----------|---------|----------------|
+| `AUTOPSY_SAMPLE` | `errors` | Use `all` only when debugging — emits every node |
+| `AUTOPSY_PRODUCTION_ALERTING` | off | Strict detectors + warn persistence; larger ring, no disk tail unless below |
+| `AUTOPSY_DETECTOR_FULL_TRACE` | `0` | `1` merges spilled JSONL at session end (slower, more complete) |
+| `AUTOPSY_DETECTORS` | all built-ins | Shorter comma list = faster `end()` |
+| `AUTOPSY_MAX_DETECTOR_EVAL_EVENTS` | `8192` | Cap events passed to detectors on very long runs |
+
+Sync decorator overhead is checked in the optional slow perf job (`pytest -m slow`).
+
 ---
 
 ## Examples

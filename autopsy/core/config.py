@@ -51,8 +51,9 @@ class LensConfig:
     latency_threshold_ms: int = 30_000
     duplicate_tool_threshold: int = 3
     error_storm_threshold: int = 3
-    detector_full_trace: bool = True
+    detector_full_trace: bool = False
     max_detector_ring_events: int = 8192
+    max_detector_eval_events: int = 8192
 
 
 def _parse_sample(raw: str) -> str | float:
@@ -131,6 +132,7 @@ def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
         ("AUTOPSY_DUPLICATE_TOOL_THRESHOLD", "duplicate_tool_threshold"),
         ("AUTOPSY_ERROR_STORM_THRESHOLD", "error_storm_threshold"),
         ("AUTOPSY_MAX_DETECTOR_RING_EVENTS", "max_detector_ring_events"),
+        ("AUTOPSY_MAX_DETECTOR_EVAL_EVENTS", "max_detector_eval_events"),
     ):
         if env_key in os.environ:
             try:

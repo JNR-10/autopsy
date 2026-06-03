@@ -20,6 +20,11 @@ from collections import deque
 from typing import Any, Optional
 
 from .config import LensConfig
+from .event_bytes import (
+    cap_events_for_evaluation,
+    estimated_event_json_bytes,
+    merge_events_chronologically,
+)
 from .events import BaseEvent, EventKind
 from .store.local_fs import LocalFilesystemStore
 from .ulid import new_ulid
@@ -119,7 +124,9 @@ class Session:
         self.start_perf_ns = start_perf_ns
         self._wall_ns = wall_ns
         self._capture: deque[BaseEvent] = deque()
+        self._capture_byte_sizes: deque[int] = deque()
         self._capture_bytes: int = 0
+        self._pending_agent_fn: Any = None
         self._detector_ring: deque[BaseEvent] = deque()
         self._detectors: list[str] | None = None
         self._detector_overrides: Any | None = None
@@ -131,46 +138,62 @@ class Session:
     def capture_events(self) -> list[BaseEvent]:
         return list(self._capture)
 
+    def capture_agent_metadata(self, fn: Any) -> None:
+        """Defer inspect until session end (avoids hot-path filesystem stat)."""
+        self._pending_agent_fn = fn
+
+    def _resolve_agent_metadata(self) -> None:
+        fn = self._pending_agent_fn
+        if fn is None or self.agent_module_path:
+            return
+        try:
+            import inspect
+            from pathlib import Path
+
+            self.agent_module_path = str(Path(inspect.getfile(fn)).resolve())
+            self.agent_fn_name = f"{fn.__module__}.{fn.__qualname__}"
+        except Exception:
+            pass
+
     def events_for_detectors(self) -> list[BaseEvent]:
-        """Merge detector ring, capture, flushed writer history, and on-disk tail."""
-        from pathlib import Path
-
-        from autopsy.core.compat import load_v1_base_events
-
+        """Merge in-memory detector inputs; disk tail only when full-trace is on."""
         seen: dict[str, BaseEvent] = {ev.event_id: ev for ev in self._detector_ring}
         for ev in self._capture:
             seen.setdefault(ev.event_id, ev)
         w = self.writer
-        if w is not None and self._config.detector_full_trace:
-            w.flush_session_now(self.session_id)
+        if w is not None:
+            if self._config.detector_full_trace:
+                w.flush_session_now(self.session_id)
             for ev in w.accumulated_events_for_session(self.session_id):
-                seen[ev.event_id] = ev
-        elif w is not None:
-            for ev in w.snapshot_events_for_detectors(self.session_id):
                 seen.setdefault(ev.event_id, ev)
-        root = self._config.session_dir or _pick_default_root()
-        session_dir = Path(root) / "sessions" / self.session_id
-        if session_dir.is_dir():
-            for ev in load_v1_base_events(session_dir):
-                seen.setdefault(ev.event_id, ev)
-        return sorted(seen.values(), key=lambda e: e.timestamp_ns)
+        if self._config.detector_full_trace:
+            from pathlib import Path
+
+            from autopsy.core.compat import load_v1_base_events
+
+            root = self._config.session_dir or _pick_default_root()
+            session_dir = Path(root) / "sessions" / self.session_id
+            if session_dir.is_dir():
+                for ev in load_v1_base_events(session_dir):
+                    seen.setdefault(ev.event_id, ev)
+        events = merge_events_chronologically(seen.values())
+        return cap_events_for_evaluation(
+            events, self._config.max_detector_eval_events,
+        )
 
     def _append_capture(self, ev: BaseEvent) -> None:
+        size = estimated_event_json_bytes(ev)
         self._capture.append(ev)
-        try:
-            self._capture_bytes += len(ev.model_dump_json())
-        except Exception:
-            pass
+        self._capture_byte_sizes.append(size)
+        self._capture_bytes += size
         max_events = self._config.max_capture_buffer_events
         max_bytes = self._config.max_capture_buffer_bytes
         while len(self._capture) > max_events or self._capture_bytes > max_bytes:
             if len(self._capture) <= 1:
                 break
-            old = self._capture.popleft()
-            try:
-                self._capture_bytes -= len(old.model_dump_json())
-            except Exception:
-                self._capture_bytes = max(0, self._capture_bytes - 1)
+            self._capture.popleft()
+            dropped = self._capture_byte_sizes.popleft()
+            self._capture_bytes = max(0, self._capture_bytes - dropped)
 
     def _append_detector_ring(self, ev: BaseEvent) -> None:
         self._detector_ring.append(ev)
@@ -262,6 +285,7 @@ class Session:
 
     def end(self, *, outcome: str, error_type: str | None = None) -> None:
         try:
+            self._resolve_agent_metadata()
             from autopsy.detectors.overrides import lens_config_for_detectors
             from autopsy.detectors.registry import resolve_enabled
             from autopsy.detectors.runner import run_detectors
@@ -328,7 +352,9 @@ class Session:
                         },
                     )
             self._capture.clear()
+            self._capture_byte_sizes.clear()
             self._capture_bytes = 0
             self._detector_ring.clear()
+            self._pending_agent_fn = None
         except Exception:
             logger.exception("autopsy: end failed")

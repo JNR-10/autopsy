@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .config import LensConfig
+from .event_bytes import estimated_event_json_bytes, merge_events_chronologically
 from .events import BaseEvent, EventKind, Manifest
 
 logger = logging.getLogger("autopsy.writer")
@@ -272,7 +273,7 @@ class Writer:
             if state is not None:
                 for ev in state.buffer:
                     seen[ev.event_id] = ev
-            return sorted(seen.values(), key=lambda e: e.timestamp_ns)
+            return merge_events_chronologically(seen.values())
 
     def _run(self) -> None:
         interval_s = self.config.flush_interval_ms / 1000.0
@@ -343,10 +344,7 @@ class Writer:
                     continue
                 state.buffer.append(ev)
                 state.event_count += 1
-                try:
-                    state.buffer_bytes += len(ev.model_dump_json())
-                except Exception:
-                    pass
+                state.buffer_bytes += estimated_event_json_bytes(ev)
                 if ev.kind is EventKind.ERROR:
                     state.kept = True
                 if ev.kind is EventKind.DETECTOR_VERDICT:
@@ -363,6 +361,7 @@ class Writer:
                     except Exception:
                         logger.exception("autopsy: store.write_events failed")
                     state.buffer = []
+                    state.buffer_bytes = 0
 
     def _finalize_session_locked(
         self,
