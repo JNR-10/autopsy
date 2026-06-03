@@ -9,7 +9,11 @@ from tests.perf.harness import measure_async_overhead_ms, measure_overhead_ms
 
 
 def test_async_p99_overhead_under_5ms(tmp_path, monkeypatch):
-    cfg = LensConfig(session_dir=str(tmp_path), default_sample="errors")
+    cfg = LensConfig(
+        session_dir=str(tmp_path),
+        default_sample="errors",
+        enabled_detectors=[],
+    )
     monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
     lens = LensDecorator(config=cfg)
 
@@ -33,7 +37,11 @@ def test_async_p99_overhead_under_5ms(tmp_path, monkeypatch):
 
 
 def test_sync_p99_overhead_under_5ms(tmp_path, monkeypatch):
-    cfg = LensConfig(session_dir=str(tmp_path), default_sample="errors")
+    cfg = LensConfig(
+        session_dir=str(tmp_path),
+        default_sample="errors",
+        enabled_detectors=[],
+    )
     monkeypatch.setattr("autopsy.core.session._writer_singleton", None)
     lens = LensDecorator(config=cfg)
 

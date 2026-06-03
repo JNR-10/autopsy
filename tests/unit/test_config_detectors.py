@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from autopsy.core.config import LensConfig, load_config_from_env
+from autopsy.detectors.defaults import DEFAULT_ENABLED_DETECTORS
 
 
 def test_default_enabled_detectors():
     c = LensConfig()
-    assert c.enabled_detectors == ["empty_response", "tool_loop", "missing_output"]
+    assert c.enabled_detectors == list(DEFAULT_ENABLED_DETECTORS)
+    assert len(c.enabled_detectors) == 12
 
 
 def test_env_autopsy_detectors_off(monkeypatch):

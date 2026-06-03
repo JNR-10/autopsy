@@ -17,9 +17,11 @@ class _FakeDetector:
         return None
 
 
-def test_builtin_detectors_has_three():
+def test_builtin_detectors_has_fourteen():
     b = builtin_detectors()
-    assert set(b) == {"empty_response", "tool_loop", "missing_output"}
+    assert len(b) == 14
+    assert "empty_response" in b
+    assert "error_storm" in b
 
 
 def test_register_and_get():
