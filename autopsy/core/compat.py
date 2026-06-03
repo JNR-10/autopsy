@@ -130,6 +130,19 @@ def _parse_jsonl_lines(f) -> list[dict[str, Any]]:
     return out
 
 
+def load_v1_base_events(session_dir: Path) -> list[Any]:
+    """Load v1 session events as typed BaseEvent instances for detector replay."""
+    from autopsy.core.events import BaseEvent, event_from_dict
+
+    out: list[BaseEvent] = []
+    for payload in _load_events_jsonl(session_dir):
+        try:
+            out.append(event_from_dict(payload))
+        except Exception:
+            logger.debug("skip unparseable v1 event", exc_info=True)
+    return out
+
+
 def _load_events_jsonl(session_dir: Path) -> list[dict[str, Any]]:
     gz = session_dir / "events.jsonl.gz"
     plain = session_dir / "events.jsonl"

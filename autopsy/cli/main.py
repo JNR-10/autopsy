@@ -10,7 +10,8 @@ Commands:
   autopsy tail <id>           tail session events (live or last N)
   autopsy export              export sessions to tarball
   autopsy import <file>       import sessions from tarball/JSON
-  autopsy replay <id>         simulated replay of a saved session
+  autopsy replay <id>         replay a saved session (simulated by default)
+  autopsy detectors [id]      list detectors or re-run them on a session
   autopsy clean               delete old sessions
   autopsy deploy              deprecated alias for export
 """
@@ -89,10 +90,18 @@ def _require_server() -> None:
 @click.option("--host", default=None, help="Server host (default: 127.0.0.1)")
 @click.option("--no-browser", is_flag=True, help="Don't auto-open browser")
 @click.option("--debug", is_flag=True, help="Enable debug logging")
-def cmd_run(script: str, port: int, host: str, no_browser: bool, debug: bool) -> None:
-    """Run an agent script with autopsy tracing + dashboard (demo mode)."""
+@click.option(
+    "--demo",
+    is_flag=True,
+    help="Enable hackathon demo routes (fix markers for examples)",
+)
+def cmd_run(
+    script: str, port: int, host: str, no_browser: bool, debug: bool, demo: bool,
+) -> None:
+    """Run an agent script with autopsy tracing + dashboard."""
     _require_server()
-    os.environ.setdefault("AUTOPSY_DEMO", "1")
+    if demo:
+        os.environ["AUTOPSY_DEMO"] = "1"
     if debug:
         logging.basicConfig(level=logging.DEBUG)
     port = port or _get_port()
@@ -337,6 +346,89 @@ def cmd_diagnose(session_id: str, node_id: str, model: str, as_json: bool) -> No
                 f"{int(result.estimated_latency_savings_ms)}ms[/dim]")
 
 
+@cli.command("detectors")
+@click.argument("session_id", required=False, default=None)
+@click.option("--list", "list_only", is_flag=True, help="List built-in detectors and exit")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON")
+def cmd_detectors(session_id: str | None, list_only: bool, as_json: bool) -> None:
+    """List built-in detectors or re-run them on a saved v1 session."""
+    import json as json_mod
+
+    from autopsy.core.compat import load_v1_base_events
+    from autopsy.core.config import load_config_from_env
+    from autopsy.detectors.catalog import detector_catalog
+    from autopsy.detectors.registry import resolve_enabled
+    from autopsy.detectors.runner import run_detectors
+
+    if list_only or session_id is None:
+        rows = [
+            {
+                "name": d.name,
+                "description": d.description,
+                "default_enabled": d.default_enabled,
+            }
+            for d in detector_catalog()
+        ]
+        if as_json:
+            click.echo(json_mod.dumps(rows, indent=2))
+            return
+        table = Table(title="Built-in detectors")
+        table.add_column("name", style="cyan")
+        table.add_column("default")
+        table.add_column("description")
+        for d in detector_catalog():
+            table.add_row(
+                d.name,
+                "yes" if d.default_enabled else "no",
+                d.description[:72],
+            )
+        console.print(table)
+        if session_id is None:
+            return
+
+    from autopsy.cli.resolve import resolve_session_id
+
+    reader = _bundle_reader()
+    sid = resolve_session_id(reader, session_id)
+    session_dir = reader.root / "sessions" / sid
+    if not (session_dir / "manifest.json").exists():
+        raise click.ClickException(
+            f"session {session_id!r} has no v1 manifest — detectors need v1 capture",
+        )
+    events = load_v1_base_events(session_dir)
+    manifest = json_mod.loads((session_dir / "manifest.json").read_text())
+    outcome = manifest.get("status", "ok")
+    if outcome not in ("ok", "error", "partial", "live"):
+        outcome = "ok"
+    cfg = load_config_from_env()
+    verdicts = run_detectors(
+        events=events,
+        outcome=outcome,
+        session_id=sid,
+        trace_id=sid,
+        parent_id=None,
+        detectors=resolve_enabled(cfg),
+    )
+    if as_json:
+        click.echo(json_mod.dumps([v.model_dump() for v in verdicts], indent=2))
+        return
+    if not verdicts:
+        console.print("[green]No detector failures or warnings.[/green]")
+        return
+    table = Table(title=f"Detector results — {sid[:18]}")
+    table.add_column("detector")
+    table.add_column("verdict")
+    table.add_column("reason")
+    for v in verdicts:
+        color = "red" if v.verdict == "fail" else "yellow"
+        table.add_row(
+            v.detector_name,
+            f"[{color}]{v.verdict}[/{color}]",
+            v.reason[:80],
+        )
+    console.print(table)
+
+
 @cli.command("tail")
 @click.argument("session_id")
 @click.option("--lines", default=20, type=int, help="Last N events for finalized sessions")
@@ -385,7 +477,7 @@ def cmd_import(file: str) -> None:
 @click.option("--fix", default="Applied developer fix")
 @click.option("--json", "as_json", is_flag=True, help="Emit replay result JSON to stdout")
 def cmd_replay(session_id: str, node_id: str, fix: str, as_json: bool) -> None:
-    """Simulated replay of a saved session from the first error node."""
+    """Replay a saved session from the first error node (simulated; does not re-run agent)."""
     from autopsy.cli.output import replay_result_json
     from autopsy.cli.resolve import resolve_session_id
     from autopsy.core.replay import ReplayEngine
