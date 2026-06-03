@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
             "version": VERSION,
             "session_dir": str(sess_dir),
             "sessions_count": len(_bundle_reader().list()),
+            "demo_enabled": demo_enabled(),
         }
 
     @app.get("/api/sessions")

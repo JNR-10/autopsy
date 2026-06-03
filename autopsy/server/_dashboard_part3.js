@@ -211,11 +211,13 @@ async function runReplay(nodeId) {
       if (r2.ok) {
         state.demoFixed = true;
         toast("✅ Fix applied — next iteration of the live pipeline will go green");
+      } else if (r2.status === 404) {
+        toast("Replay complete (simulated — enable AUTOPSY_DEMO=1 for live demo fix)");
       } else {
-        toast("Replay complete - errors fixed!");
+        toast("Replay complete (simulated)");
       }
     } catch (_) {
-      toast("Replay complete - errors fixed!");
+      toast("Replay complete (simulated)");
     }
     renderCenter();
     renderHeaderStatus();
