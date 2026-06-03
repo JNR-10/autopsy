@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a new capability or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem first. For large changes (new store backend, OTel export, dashboard), please outline design before opening a PR.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What silent failure or workflow is painful today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - detector
+        - cli
+        - capture / writer
+        - diagnose
+        - store / export
+        - dashboard / server
+        - docs / examples
+        - other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Fit with project focus
+      options:
+        - label: This helps CLI-first post-mortem (ls / show / detectors / diagnose)
+        - label: I am willing to add tests and update CHANGELOG

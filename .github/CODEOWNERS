@@ -1,0 +1,7 @@
+# Default reviewers for PRs (adjust usernames as needed)
+* @JNR-10
+
+/autopsy/core/ @JNR-10
+/autopsy/detectors/ @JNR-10
+/autopsy/cli/ @JNR-10
+/tests/ @JNR-10

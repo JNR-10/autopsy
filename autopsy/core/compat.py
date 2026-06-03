@@ -15,7 +15,6 @@ unified `LegacyBundleReader` (added in 6.3) chooses between them.
 """
 from __future__ import annotations
 
-import gzip
 import json
 import logging
 from pathlib import Path

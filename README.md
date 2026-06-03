@@ -144,6 +144,20 @@ Run slow perf/regression checks: `pytest -m slow` (decorator p99, session-end me
 
 ---
 
+## Contributing
+
+We welcome PRs — especially **detectors**, **CLI improvements**, **tests**, and **minimal examples**.
+
+→ **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, `make test`, detector cookbook, PR checklist.
+
+```bash
+make install && make check   # lint + pytest
+```
+
+Label ideas for maintainers: `good first issue`, `detector`, `cli`, `docs`, `perf`.
+
+---
+
 ## License
 
 MIT — see [CHANGELOG.md](CHANGELOG.md) for release history.
@@ -575,20 +589,30 @@ cfg.demo_enabled # AUTOPSY_DEMO=1
 
 ## Development
 
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full contributor guide (detector cookbook, scope, PR checklist).
+
 ### Setup
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,server,diagnose]"
+pip install -e ".[dev,server,diagnose,fast]"
 cp .env.example .env
+# or: make install
 ```
 
 ### Tests
 
 ```bash
-.venv/bin/python -m pytest tests/ -q              # 247 tests (default)
-.venv/bin/python -m pytest tests/ -m slow -q    # +3 slow (perf, crash, soak)
-.venv/bin/ruff check autopsy tests
+make test          # default suite (slow tests excluded)
+make test-slow     # perf, crash recovery, session-end benchmarks
+make lint          # ruff
+make check         # lint + test
+```
+
+```bash
+.venv/bin/python -m pytest tests/ -q
+.venv/bin/python -m pytest tests/ -m slow -q
+.venv/bin/ruff check autopsy tests examples
 ```
 
 Layout: `tests/unit`, `tests/integration`, `tests/cli`, `tests/perf`.

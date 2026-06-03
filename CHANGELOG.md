@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [CONTRIBUTING.md](CONTRIBUTING.md), Makefile, GitHub issue/PR templates, and CODEOWNERS
 - Optional `AUTOPSY_EVENT_ENCODING=msgspec` (length-prefixed MessagePack via `autopsy[fast]`)
 - Writer disk spill batching (`AUTOPSY_WRITER_SPILL_BATCH_*`)
 - Cheap event byte estimates for capture/writer buffer caps (`event_bytes` module)

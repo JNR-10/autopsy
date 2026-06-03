@@ -1,7 +1,6 @@
 """events_for_detectors avoids disk unless detector_full_trace is enabled."""
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import autopsy.core.session as session_mod

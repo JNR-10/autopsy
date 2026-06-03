@@ -1,0 +1,65 @@
+name: Bug report
+description: Something broke or behaved incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Include versions and steps to reproduce. **Do not paste API keys or private traces.**
+
+  - type: input
+    id: version
+    attributes:
+      label: autopsy version
+      placeholder: "pip show autopsy, or git commit"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: python
+    attributes:
+      label: Python version
+      options:
+        - "3.11"
+        - "3.12"
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. autopsy show <id>
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: CLI output / errors (redact secrets)
+      render: shell
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Privacy
+      options:
+        - label: I have removed API keys and sensitive session content from this report
+          required: true
