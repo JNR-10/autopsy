@@ -17,7 +17,7 @@ import random
 import threading
 import time
 from collections import deque
-from typing import Optional
+from typing import Any, Optional
 
 from .config import LensConfig
 from .events import BaseEvent, EventKind
@@ -26,6 +26,16 @@ from .ulid import new_ulid
 from .writer import SampleMode, Writer
 
 logger = logging.getLogger("autopsy.session")
+
+_DETECTOR_RING_KINDS = frozenset({
+    EventKind.LLM_REQUEST,
+    EventKind.LLM_RESPONSE,
+    EventKind.TOOL_CALL_START,
+    EventKind.TOOL_CALL_END,
+    EventKind.ERROR,
+    EventKind.AGENT_END,
+    EventKind.AGENT_START,
+})
 
 _writer_lock = threading.Lock()
 _writer_singleton: Optional[Writer] = None
@@ -110,20 +120,28 @@ class Session:
         self._wall_ns = wall_ns
         self._capture: deque[BaseEvent] = deque()
         self._capture_bytes: int = 0
+        self._detector_ring: deque[BaseEvent] = deque()
         self._detectors: list[str] | None = None
+        self._detector_overrides: Any | None = None
 
     def capture_events(self) -> list[BaseEvent]:
         return list(self._capture)
 
     def events_for_detectors(self) -> list[BaseEvent]:
-        """Merge capture buffer, writer in-flight buffer, and any on-disk tail."""
+        """Merge detector ring, capture, flushed writer history, and on-disk tail."""
         from pathlib import Path
 
         from autopsy.core.compat import load_v1_base_events
 
-        seen: dict[str, BaseEvent] = {ev.event_id: ev for ev in self._capture}
+        seen: dict[str, BaseEvent] = {ev.event_id: ev for ev in self._detector_ring}
+        for ev in self._capture:
+            seen.setdefault(ev.event_id, ev)
         w = self.writer
-        if w is not None:
+        if w is not None and self._config.detector_full_trace:
+            w.flush_session_now(self.session_id)
+            for ev in w.accumulated_events_for_session(self.session_id):
+                seen[ev.event_id] = ev
+        elif w is not None:
             for ev in w.snapshot_events_for_detectors(self.session_id):
                 seen.setdefault(ev.event_id, ev)
         root = self._config.session_dir or _pick_default_root()
@@ -149,6 +167,12 @@ class Session:
                 self._capture_bytes -= len(old.model_dump_json())
             except Exception:
                 self._capture_bytes = max(0, self._capture_bytes - 1)
+
+    def _append_detector_ring(self, ev: BaseEvent) -> None:
+        self._detector_ring.append(ev)
+        max_ring = self._config.max_detector_ring_events
+        while len(self._detector_ring) > max_ring:
+            self._detector_ring.popleft()
 
     def _must_keep(self) -> bool:
         return self.sample is SampleMode.ALL or self.head_keep
@@ -181,6 +205,7 @@ class Session:
         sample,
         writer: Writer | None = None,
         detectors: list[str] | None = None,
+        detector_overrides: Any | None = None,
     ) -> "Session":
         mode, head_keep = _resolve_sample(sample, config.default_sample)
         sid = new_ulid()
@@ -208,6 +233,7 @@ class Session:
             start_perf_ns=now_perf, wall_ns=wall,
         )
         sess._detectors = detectors
+        sess._detector_overrides = detector_overrides
         return sess
 
     def record_event(self, ev: BaseEvent) -> None:
@@ -218,6 +244,8 @@ class Session:
                 except Exception:
                     return
             self._append_capture(ev)
+            if ev.kind in _DETECTOR_RING_KINDS:
+                self._append_detector_ring(ev)
             w = self.writer
             if w is None:
                 if ev.kind is EventKind.ERROR:
@@ -230,19 +258,23 @@ class Session:
 
     def end(self, *, outcome: str, error_type: str | None = None) -> None:
         try:
+            from autopsy.detectors.overrides import lens_config_for_detectors
             from autopsy.detectors.registry import resolve_enabled
             from autopsy.detectors.runner import run_detectors
 
+            det_cfg = lens_config_for_detectors(
+                self._config, overrides=self._detector_overrides,
+            )
             verdicts = []
             if self._detectors is not None:
                 enabled = self._detectors
             else:
-                enabled = self._config.enabled_detectors
+                enabled = det_cfg.enabled_detectors
             if enabled:
                 saved: list[str] | None = None
                 if self._detectors is not None:
-                    saved = self._config.enabled_detectors
-                    self._config.enabled_detectors = list(self._detectors)
+                    saved = det_cfg.enabled_detectors
+                    det_cfg.enabled_detectors = list(self._detectors)
                 try:
                     verdicts = run_detectors(
                         events=self.events_for_detectors(),
@@ -250,20 +282,20 @@ class Session:
                         session_id=self.session_id,
                         trace_id=self.session_id,
                         parent_id=None,
-                        detectors=resolve_enabled(self._config),
+                        detectors=resolve_enabled(det_cfg),
                     )
                 finally:
                     if saved is not None:
-                        self._config.enabled_detectors = saved
+                        det_cfg.enabled_detectors = saved
             fails = [v for v in verdicts if v.verdict == "fail"]
             warns = [v for v in verdicts if v.verdict == "warn"]
             promote = bool(fails) or (
-                bool(warns) and self._config.promote_on_warn
+                bool(warns) and det_cfg.promote_on_warn
             )
             if fails:
                 outcome = "error"
                 error_type = error_type or f"detector:{fails[0].detector_name}"
-            elif warns and self._config.promote_on_warn:
+            elif warns and det_cfg.promote_on_warn:
                 error_type = error_type or f"detector_warn:{warns[0].detector_name}"
 
             should_finalize = promote or self.writer is not None or self._must_keep()
@@ -272,6 +304,8 @@ class Session:
                 if promote:
                     if w is None:
                         w = self._activate_writer()
+                    if warns and det_cfg.promote_on_warn and not fails:
+                        w.mark_session_kept(self.session_id)
                     for ev in self._capture:
                         w.enqueue(ev)
                     for v in verdicts:
@@ -283,5 +317,6 @@ class Session:
                     )
             self._capture.clear()
             self._capture_bytes = 0
+            self._detector_ring.clear()
         except Exception:
             logger.exception("autopsy: end failed")

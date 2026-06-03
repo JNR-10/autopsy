@@ -7,6 +7,7 @@ import logging
 import time
 
 from .config import LensConfig as _LensConfig
+from autopsy.detectors.overrides import DetectorCallOverrides
 from .context import current_parent_id, current_session, set_parent_id, set_session
 from .events import AgentEndEvent, AgentStartEvent, ErrorEvent, EventKind
 from .session import Session as _Session
@@ -39,14 +40,57 @@ class LensDecorator:
     def set_ws_manager(self, ws_manager) -> None:
         """No-op stub kept for server wiring compatibility."""
 
-    def trace(self, fn=None, *, sample=None, name=None, detectors=None):
+    def trace(
+        self,
+        fn=None,
+        *,
+        sample=None,
+        name=None,
+        detectors=None,
+        detector_profile=None,
+        promote_on_warn=None,
+        tool_loop_threshold=None,
+        max_tool_calls=None,
+        latency_threshold_ms=None,
+        duplicate_tool_threshold=None,
+        error_storm_threshold=None,
+    ):
+        _ov_args = (
+            detector_profile, promote_on_warn, tool_loop_threshold, max_tool_calls,
+            latency_threshold_ms, duplicate_tool_threshold, error_storm_threshold,
+        )
+        overrides = (
+            DetectorCallOverrides(
+                detector_profile=detector_profile,
+                promote_on_warn=promote_on_warn,
+                tool_loop_threshold=tool_loop_threshold,
+                max_tool_calls=max_tool_calls,
+                latency_threshold_ms=latency_threshold_ms,
+                duplicate_tool_threshold=duplicate_tool_threshold,
+                error_storm_threshold=error_storm_threshold,
+            )
+            if any(x is not None for x in _ov_args)
+            else None
+        )
         if fn is None:
             return lambda f: self.trace(
-                f, sample=sample, name=name, detectors=detectors,
+                f,
+                sample=sample,
+                name=name,
+                detectors=detectors,
+                detector_profile=detector_profile,
+                promote_on_warn=promote_on_warn,
+                tool_loop_threshold=tool_loop_threshold,
+                max_tool_calls=max_tool_calls,
+                latency_threshold_ms=latency_threshold_ms,
+                duplicate_tool_threshold=duplicate_tool_threshold,
+                error_storm_threshold=error_storm_threshold,
             )
-        return self._wrap(fn, sample=sample, name=name, detectors=detectors)
+        return self._wrap(
+            fn, sample=sample, name=name, detectors=detectors, overrides=overrides,
+        )
 
-    def _wrap(self, fn, *, sample, name, detectors):
+    def _wrap(self, fn, *, sample, name, detectors, overrides=None):
         is_coro = asyncio.iscoroutinefunction(fn)
         agent_name = name or getattr(fn, "__name__", "agent")
 
@@ -56,6 +100,7 @@ class LensDecorator:
                 return await self._invoke_async(
                     fn, args, kwargs,
                     sample=sample, agent_name=agent_name, detectors=detectors,
+                    overrides=overrides,
                 )
             return async_wrapper
 
@@ -64,16 +109,17 @@ class LensDecorator:
             return self._invoke_sync(
                 fn, args, kwargs,
                 sample=sample, agent_name=agent_name, detectors=detectors,
+                overrides=overrides,
             )
         return sync_wrapper
 
-    def _begin_or_join(self, sample, agent_name, detectors=None):
+    def _begin_or_join(self, sample, agent_name, detectors=None, overrides=None):
         existing = current_session()
         if existing is not None:
             return existing, False
         session = _Session.begin(
             config=self.config, agent_name=agent_name, sample=sample,
-            detectors=detectors,
+            detectors=detectors, detector_overrides=overrides,
         )
         set_session(session)
         return session, True
@@ -132,8 +178,12 @@ class LensDecorator:
         except Exception:
             pass
 
-    async def _invoke_async(self, fn, args, kwargs, *, sample, agent_name, detectors=None):
-        session, is_root = self._begin_or_join(sample, agent_name, detectors=detectors)
+    async def _invoke_async(
+        self, fn, args, kwargs, *, sample, agent_name, detectors=None, overrides=None,
+    ):
+        session, is_root = self._begin_or_join(
+            sample, agent_name, detectors=detectors, overrides=overrides,
+        )
         track = session.sample is not SampleMode.ERRORS
         node_id = None
         parent_token = None
@@ -174,8 +224,12 @@ class LensDecorator:
             if is_root:
                 set_session(None)
 
-    def _invoke_sync(self, fn, args, kwargs, *, sample, agent_name, detectors=None):
-        session, is_root = self._begin_or_join(sample, agent_name, detectors=detectors)
+    def _invoke_sync(
+        self, fn, args, kwargs, *, sample, agent_name, detectors=None, overrides=None,
+    ):
+        session, is_root = self._begin_or_join(
+            sample, agent_name, detectors=detectors, overrides=overrides,
+        )
         track = session.sample is not SampleMode.ERRORS
         node_id = None
         parent_token = None

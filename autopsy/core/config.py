@@ -51,6 +51,8 @@ class LensConfig:
     latency_threshold_ms: int = 30_000
     duplicate_tool_threshold: int = 3
     error_storm_threshold: int = 3
+    detector_full_trace: bool = True
+    max_detector_ring_events: int = 8192
 
 
 def _parse_sample(raw: str) -> str | float:
@@ -79,6 +81,12 @@ def _parse_bool(raw: str, default: bool) -> bool:
 def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
     """Apply AUTOPSY_* env vars on top of `base` (or a fresh default)."""
     c = base or LensConfig()
+    if "AUTOPSY_PRODUCTION_ALERTING" in os.environ and _parse_bool(
+        os.environ["AUTOPSY_PRODUCTION_ALERTING"], False,
+    ):
+        from autopsy.detectors.presets import apply_production_alerting
+
+        apply_production_alerting(c)
     if "AUTOPSY_DETECTOR_PROFILE" in os.environ:
         from autopsy.detectors.profiles import apply_profile_to_lens_config, get_profile
 
@@ -122,12 +130,17 @@ def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
         ("AUTOPSY_LATENCY_THRESHOLD_MS", "latency_threshold_ms"),
         ("AUTOPSY_DUPLICATE_TOOL_THRESHOLD", "duplicate_tool_threshold"),
         ("AUTOPSY_ERROR_STORM_THRESHOLD", "error_storm_threshold"),
+        ("AUTOPSY_MAX_DETECTOR_RING_EVENTS", "max_detector_ring_events"),
     ):
         if env_key in os.environ:
             try:
                 setattr(c, attr, int(os.environ[env_key]))
             except ValueError:
                 logger.warning("autopsy: invalid %s=%r", env_key, os.environ[env_key])
+    if "AUTOPSY_DETECTOR_FULL_TRACE" in os.environ:
+        c.detector_full_trace = _parse_bool(
+            os.environ["AUTOPSY_DETECTOR_FULL_TRACE"], c.detector_full_trace,
+        )
     return c
 
 

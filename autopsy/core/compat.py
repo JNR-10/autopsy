@@ -153,6 +153,29 @@ def _legacy_event_id(ev: dict[str, Any], session_id: str, seq: int) -> str:
     return str(ev.get("event_id") or ev.get("node_id") or f"{session_id}-legacy-{seq}")
 
 
+_LEGACY_EVENT_TYPE_ALIASES: dict[str, str] = {
+    "tool_start": "tool_call",
+    "tool_end": "tool_result",
+    "llm": "llm_response",
+    "llm_completion": "llm_response",
+    "assistant": "llm_response",
+}
+
+
+def _legacy_pick(ev: dict[str, Any], *keys: str, default: Any = "") -> Any:
+    for key in keys:
+        if key in ev and ev[key] is not None:
+            return ev[key]
+    return default
+
+
+def _legacy_error_attributes(ev: dict[str, Any]) -> dict[str, Any]:
+    attrs = dict(ev.get("attributes") or {})
+    if ev.get("handled") or ev.get("is_handled") or ev.get("caught"):
+        attrs["handled"] = True
+    return attrs
+
+
 def legacy_event_to_base(
     ev: dict[str, Any], *, session_id: str, seq: int,
 ) -> Any | None:
@@ -175,7 +198,7 @@ def legacy_event_to_base(
         except Exception:
             return None
 
-    et = ev.get("event_type", "")
+    et = _LEGACY_EVENT_TYPE_ALIASES.get(ev.get("event_type", ""), ev.get("event_type", ""))
     if et == "node_error":
         err_type = str(ev.get("error_type", ""))
         if err_type.startswith("detector:"):
@@ -190,7 +213,7 @@ def legacy_event_to_base(
             error_type=err_type or "Error",
             error_message=str(ev.get("error_message", "")),
             traceback=str(ev.get("traceback", "")),
-            attributes=dict(ev.get("attributes") or {}),
+            attributes=_legacy_error_attributes(ev),
         )
     if et == "llm_response":
         return LLMResponseEvent(
@@ -200,14 +223,19 @@ def legacy_event_to_base(
             trace_id=session_id,
             timestamp_ns=_legacy_ts_ns(ev),
             kind=EventKind.LLM_RESPONSE,
-            model=str(ev.get("model", "")),
-            content=str(ev.get("content") or ev.get("response_text") or ""),
-            tool_calls=list(ev.get("tool_calls") or []),
-            prompt_tokens=int(ev.get("prompt_tokens") or 0),
-            completion_tokens=int(ev.get("completion_tokens") or 0),
-            total_tokens=int(ev.get("total_tokens") or 0),
-            latency_ms=float(ev.get("latency_ms") or 0),
-            finish_reason=str(ev.get("finish_reason") or ""),
+            model=str(_legacy_pick(ev, "model", default="")),
+            content=str(_legacy_pick(
+                ev, "content", "response_text", "output", "text", "message", "response",
+                default="",
+            )),
+            tool_calls=list(ev.get("tool_calls") or ev.get("function_calls") or []),
+            prompt_tokens=int(_legacy_pick(ev, "prompt_tokens", "input_tokens", default=0)),
+            completion_tokens=int(_legacy_pick(
+                ev, "completion_tokens", "output_tokens", default=0,
+            )),
+            total_tokens=int(_legacy_pick(ev, "total_tokens", default=0)),
+            latency_ms=float(_legacy_pick(ev, "latency_ms", "duration_ms", default=0)),
+            finish_reason=str(_legacy_pick(ev, "finish_reason", "stop_reason", default="")),
         )
     if et == "llm_request":
         return LLMRequestEvent(
@@ -228,10 +256,11 @@ def legacy_event_to_base(
             trace_id=session_id,
             timestamp_ns=_legacy_ts_ns(ev),
             kind=EventKind.TOOL_CALL_START,
-            tool_name=str(ev.get("tool_name", "")),
-            tool_args=dict(ev.get("tool_args") or {}),
+            tool_name=str(_legacy_pick(ev, "tool_name", "name", default="")),
+            tool_args=dict(ev.get("tool_args") or ev.get("arguments") or ev.get("args") or {}),
         )
     if et == "tool_result":
+        err = ev.get("error") or ev.get("error_message") or ev.get("tool_error")
         return ToolCallEndEvent(
             event_id=_legacy_event_id(ev, session_id, seq),
             parent_id=ev.get("parent_node_id"),
@@ -239,10 +268,10 @@ def legacy_event_to_base(
             trace_id=session_id,
             timestamp_ns=_legacy_ts_ns(ev),
             kind=EventKind.TOOL_CALL_END,
-            tool_name=str(ev.get("tool_name", "")),
-            result=ev.get("result"),
-            error=ev.get("error"),
-            duration_ms=float(ev.get("latency_ms") or ev.get("duration_ms") or 0),
+            tool_name=str(_legacy_pick(ev, "tool_name", "name", default="")),
+            result=ev.get("result") if "result" in ev else ev.get("tool_result"),
+            error=str(err) if err else None,
+            duration_ms=float(_legacy_pick(ev, "latency_ms", "duration_ms", default=0)),
         )
     if et == "node_end":
         return AgentEndEvent(
@@ -253,7 +282,9 @@ def legacy_event_to_base(
             timestamp_ns=_legacy_ts_ns(ev),
             kind=EventKind.AGENT_END,
             duration_ms=float(ev.get("duration_ms") or 0),
-            output_preview=str(ev.get("output_data") or ev.get("output_preview") or ""),
+            output_preview=str(_legacy_pick(
+                ev, "output_data", "output_preview", "output", "result", default="",
+            )),
         )
     if et == "node_start":
         return AgentStartEvent(

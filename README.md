@@ -362,7 +362,15 @@ Pluggable detectors run at **`Session.end()`** on a **merged event view**: in-me
 | `balanced` | Default recommendation: larger buffers + enables `high_latency` / `error_storm` |
 | `lenient` | Noisy agents: disables `unhandled_exception`, `duplicate_tool_args`, `token_budget_empty`; very large buffers |
 
-For **warn-only production alerting**, set `AUTOPSY_DETECTOR_PROFILE=strict` (or `AUTOPSY_PROMOTE_ON_WARN=1`) and include `high_latency,error_storm` in `AUTOPSY_DETECTORS`.
+For **warn-only production alerting**, use the one-shot preset or per-agent overrides:
+
+```bash
+export AUTOPSY_PRODUCTION_ALERTING=1   # strict + promote_on_warn + all detectors + full trace
+# or per agent:
+@lens.trace(detector_profile="strict", promote_on_warn=True, tool_loop_threshold=3)
+```
+
+**Full trace for detectors** (default on): `AUTOPSY_DETECTOR_FULL_TRACE=1` flushes the writer queue and merges up to `AUTOPSY_MAX_DETECTOR_RING_EVENTS` (default 8192) LLM/tool/error events even when the general capture buffer is smaller.
 
 **Offline re-run:** `autopsy detectors <id>` works for **v1 sessions** and **legacy v0** JSON blobs (events are converted to v1 types automatically).
 

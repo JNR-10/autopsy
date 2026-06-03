@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `AUTOPSY_PRODUCTION_ALERTING=1` preset (strict + warn persistence + full detector list)
+- Detector ring (`max_detector_ring_events`) and `Writer.flush_now()` for full-trace evaluation
+- Per-agent `@lens.trace(detector_profile=..., tool_loop_threshold=..., promote_on_warn=...)`
+- Expanded legacy v0 field aliases (`tool_start`, `response_text`, `handled`, …)
 - **12 default semantic detectors** (was 3): tool failures, truncation, orphan LLM/tools, unexecuted tool calls, swallowed errors, token-empty output, content filter, duplicate tool args
 - Optional warn-tier detectors: `high_latency`, `error_storm`
 - `autopsy detectors` / `autopsy detectors <id>` — catalog and offline re-run on v1 **and legacy v0** sessions

@@ -55,6 +55,34 @@ def test_legacy_events_to_base_tool_failure(tmp_path):
     assert v is not None
 
 
+def test_legacy_tool_start_alias(tmp_path):
+    sid = "01HXY000000000000000000098"
+    payload = {
+        "session_id": sid,
+        "created_at": 1.0,
+        "agent_name": "a",
+        "events": [
+            {
+                "event_type": "tool_start",
+                "node_id": "t1",
+                "timestamp": 1.0,
+                "tool_name": "search",
+                "arguments": {"q": 1},
+            },
+        ],
+        "summary": {"status": "success"},
+    }
+    p = tmp_path / "sessions" / f"{sid}.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload))
+    from autopsy.core.compat import legacy_events_to_base
+    from autopsy.core.events import ToolCallStartEvent
+
+    events = legacy_events_to_base(payload["events"], session_id=sid)
+    assert len(events) == 1
+    assert isinstance(events[0], ToolCallStartEvent)
+
+
 def test_load_session_events_v0_via_reader(tmp_path):
     sid = "01HXY000000000000000000099"
     _write_v0_tool_error(tmp_path, sid)

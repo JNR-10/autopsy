@@ -183,6 +183,13 @@ class Writer:
         with self._lock:
             return list(self._per_session_buffer_for_test.get(session_id, []))
 
+    def mark_session_kept(self, session_id: str) -> None:
+        """Force a session to be retained (e.g. warn-tier detector with per-call promote_on_warn)."""
+        with self._lock:
+            state = self._sessions.get(session_id)
+            if state is not None:
+                state.kept = True
+
     def snapshot_events_for_detectors(self, session_id: str) -> list[BaseEvent]:
         """In-flight writer buffer for a session (not yet spilled or after partial spill)."""
         with self._lock:
@@ -190,6 +197,72 @@ class Writer:
             if state is None:
                 return []
             return list(state.buffer)
+
+    def flush_session_now(self, session_id: str, *, limit: int = 50_000) -> int:
+        """Process queued events for one session only (safe before detector evaluation)."""
+        processed = 0
+        requeue: list = []
+        pending: list = []
+        while processed + len(pending) < limit:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is _SENTINEL:
+                requeue.append(item)
+                continue
+            if isinstance(item, tuple) and item and item[0] == "END":
+                requeue.append(item)
+                continue
+            sid = getattr(item, "session_id", None)
+            if sid == session_id:
+                pending.append(item)
+            else:
+                requeue.append(item)
+        for item in requeue:
+            try:
+                self._queue.put_nowait(item)
+            except queue.Full:
+                self.dropped_events_total += 1
+        if pending:
+            self._process_batch(pending)
+            processed = len(pending)
+        return processed
+
+    def flush_now(self, *, limit: int = 50_000) -> int:
+        """Drain the entire writer queue synchronously (tests / shutdown helpers)."""
+        processed = 0
+        while processed < limit:
+            batch: list = []
+            while len(batch) < self.config.flush_batch_size:
+                try:
+                    item = self._queue.get_nowait()
+                except queue.Empty:
+                    break
+                if item is _SENTINEL:
+                    try:
+                        self._queue.put_nowait(_SENTINEL)
+                    except queue.Full:
+                        pass
+                    break
+                batch.append(item)
+            if not batch:
+                break
+            self._process_batch(batch)
+            processed += len(batch)
+        return processed
+
+    def accumulated_events_for_session(self, session_id: str) -> list[BaseEvent]:
+        """All events processed by the writer for this session (incl. spilled batches)."""
+        with self._lock:
+            seen: dict[str, BaseEvent] = {}
+            for ev in self._per_session_buffer_for_test.get(session_id, []):
+                seen[ev.event_id] = ev
+            state = self._sessions.get(session_id)
+            if state is not None:
+                for ev in state.buffer:
+                    seen[ev.event_id] = ev
+            return sorted(seen.values(), key=lambda e: e.timestamp_ns)
 
     def _run(self) -> None:
         interval_s = self.config.flush_interval_ms / 1000.0
