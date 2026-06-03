@@ -1,19 +1,19 @@
-"""autopsy CLI commands.
+"""agent-autopsy CLI commands.
 
 Commands:
-  autopsy run <script.py>     start server + run user agent + open browser
-  autopsy serve               start server only
-  autopsy ls                  list saved sessions (canonical)
-  autopsy sessions            alias for ls
-  autopsy show <id>           show session detail
-  autopsy diagnose <id>       diagnose a saved session
-  autopsy tail <id>           tail session events (live or last N)
-  autopsy export              export sessions to tarball
-  autopsy import <file>       import sessions from tarball/JSON
-  autopsy replay <id>         replay a saved session (simulated by default)
-  autopsy detectors [id]      list detectors or re-run them on a session
-  autopsy clean               delete old sessions
-  autopsy deploy              deprecated alias for export
+  agent-autopsy run <script.py>     start server + run user agent + open browser
+  agent-autopsy serve               start server only
+  agent-autopsy ls                  list saved sessions (canonical)
+  agent-autopsy sessions            alias for ls
+  agent-autopsy show <id>           show session detail
+  agent-autopsy diagnose <id>       diagnose a saved session
+  agent-autopsy tail <id>           tail session events (live or last N)
+  agent-autopsy export              export sessions to tarball
+  agent-autopsy import <file>       import sessions from tarball/JSON
+  agent-autopsy replay <id>         replay a saved session (simulated by default)
+  agent-autopsy detectors [id]      list detectors or re-run them on a session
+  agent-autopsy clean               delete old sessions
+  agent-autopsy deploy              deprecated alias for export
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def _bundle_reader():
 
 
 @click.group()
-@click.version_option(package_name="autopsy")
+@click.version_option(package_name="agent-autopsy")
 def cli() -> None:
     """autopsy - your agent died. here's why."""
 
@@ -80,7 +80,7 @@ def _require_server() -> None:
     except ImportError as exc:
         raise click.ClickException(
             "The dashboard server requires optional dependencies: "
-            "pip install autopsy[server]"
+            "pip install agent-autopsy[server]"
         ) from exc
 
 
@@ -218,7 +218,7 @@ def _cmd_ls(*, as_json: bool) -> None:
             return
         console.print(
             "[yellow]No sessions yet. "
-            "Run [cyan]autopsy run agent.py[/cyan] to record one.[/yellow]")
+            "Run [cyan]agent-autopsy run agent.py[/cyan] to record one.[/yellow]")
         return
     if as_json:
         click.echo(session_list_json(rows))
@@ -578,8 +578,8 @@ def cmd_clean(all_: bool) -> None:
 def cmd_deploy(ctx: click.Context, out: str, fmt: str) -> None:
     """Deprecated alias for export."""
     console.print(
-        "[yellow]Warning: `autopsy deploy` is deprecated — "
-        "use `autopsy export` instead.[/yellow]")
+        "[yellow]Warning: `agent-autopsy deploy` is deprecated — "
+        "use `agent-autopsy export` instead.[/yellow]")
     if fmt == "json" or out.endswith(".json"):
         ctx.invoke(cmd_export, out=out, fmt="json")
     else:

@@ -44,7 +44,7 @@ class LoggingExporter:
         msg = (
             f"autopsy: agent={manifest.agent_name} status={manifest.status} "
             f"duration={int(manifest.duration_ms or 0)}ms session={manifest.session_id} "
-            f"run 'autopsy diagnose {manifest.session_id}' to investigate"
+            f"run 'agent-autopsy diagnose {manifest.session_id}' to investigate"
         )
         if manifest.status in ("error", "partial"):
             _LOGGER.warning(msg, extra=extra)

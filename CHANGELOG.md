@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- PyPI distribution renamed to **`agent-autopsy`** (`autopsy` taken on PyPI); CLI command is `agent-autopsy`; import remains `from autopsy import …`
+
 ### Added
 
 - [CONTRIBUTING.md](CONTRIBUTING.md), Makefile, GitHub issue/PR templates, and CODEOWNERS
+- [RELEASING.md](RELEASING.md) and MIT `LICENSE`
 - Optional `AUTOPSY_EVENT_ENCODING=msgspec` (length-prefixed MessagePack via `autopsy[fast]`)
 - Writer disk spill batching (`AUTOPSY_WRITER_SPILL_BATCH_*`)
 - Cheap event byte estimates for capture/writer buffer caps (`event_bytes` module)

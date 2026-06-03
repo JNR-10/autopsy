@@ -3,12 +3,12 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "autopsy"
+name = "agent-autopsy"
 version = "0.2.0"
 description = "Your agent died. Here's why. — Zero-config observability & failure replay for agentic LLM apps"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 keywords = ["llm", "agents", "observability", "tracing", "debugging", "openai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -46,7 +46,7 @@ fast = ["msgspec>=0.18.0"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "respx>=0.21", "ruff", "msgspec>=0.18.0"]
 
 [project.scripts]
-autopsy = "autopsy.cli.main:cli"
+agent-autopsy = "autopsy.cli.main:cli"
 
 [project.urls]
 Homepage = "https://github.com/JNR-10/autopsy"

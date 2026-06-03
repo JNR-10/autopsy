@@ -16,7 +16,7 @@ This example is designed to showcase every autopsy feature:
   - Time-travel replay
 
 Run with:
-    autopsy run examples/financial_research_pipeline.py
+    agent-autopsy run examples/financial_research_pipeline.py
 
 Or directly:
     python examples/financial_research_pipeline.py

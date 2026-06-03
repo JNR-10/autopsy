@@ -14,9 +14,9 @@ async def my_agent(query: str):
 ```
 
 ```bash
-autopsy ls
-autopsy show <session_id>
-autopsy diagnose <session_id>
+agent-autopsy ls
+agent-autopsy show <session_id>
+agent-autopsy diagnose <session_id>
 ```
 
 ---
@@ -32,10 +32,10 @@ When code breaks, you get a stack trace. When an **agent** breaks, it often retu
 Python **3.11+** required.
 
 ```bash
-pip install autopsy                    # capture + CLI + heuristic diagnose
-pip install "autopsy[server]"          # + local dashboard
-pip install "autopsy[diagnose]"          # + LLM diagnose (OpenAI, Anthropic, Gemini)
-pip install "autopsy[server,diagnose]" # full stack
+pip install agent-autopsy                    # capture + CLI + heuristic diagnose
+pip install "agent-autopsy[server]"          # + local dashboard
+pip install "agent-autopsy[diagnose]"        # + LLM diagnose (OpenAI, Anthropic, Gemini)
+pip install "agent-autopsy[server,diagnose]"   # full stack
 ```
 
 **From source:**
@@ -62,12 +62,12 @@ async def my_agent(query: str) -> str:
 
 ```bash
 python my_agent.py
-autopsy ls
-autopsy show <session_id>
-autopsy diagnose <session_id> --model auto
+agent-autopsy ls
+agent-autopsy show <session_id>
+agent-autopsy diagnose <session_id> --model auto
 ```
 
-**Prefix IDs work:** `autopsy show 01HXY000` if the prefix is unique.
+**Prefix IDs work:** `agent-autopsy show 01HXY000` if the prefix is unique.
 
 **JSON for scripts:** add `--json` to `ls`, `show`, `diagnose`, `tail`, `replay`.
 
@@ -77,21 +77,21 @@ autopsy diagnose <session_id> --model auto
 
 | Command | What it does |
 |---------|----------------|
-| `autopsy ls` | List saved sessions |
-| `autopsy show <id>` | Detail + detector verdicts (`--events` for timeline) |
-| `autopsy detectors` | List built-in detectors (`--list`) |
-| `autopsy detectors <id>` | Re-run detectors on a saved v1 session |
-| `autopsy diagnose <id>` | Root-cause analysis |
-| `autopsy tail <id>` | Last N events, or live stream for in-progress sessions |
-| `autopsy export` / `import` | Backup / restore sessions (tar.gz default) |
-| `autopsy replay <id>` | Replay (`--live` re-runs agent module) |
-| `autopsy clean --all` | Wipe local session store |
+| `agent-autopsy ls` | List saved sessions |
+| `agent-autopsy show <id>` | Detail + detector verdicts (`--events` for timeline) |
+| `agent-autopsy detectors` | List built-in detectors (`--list`) |
+| `agent-autopsy detectors <id>` | Re-run detectors on a saved v1 session |
+| `agent-autopsy diagnose <id>` | Root-cause analysis |
+| `agent-autopsy tail <id>` | Last N events, or live stream for in-progress sessions |
+| `agent-autopsy export` / `import` | Backup / restore sessions (tar.gz default) |
+| `agent-autopsy replay <id>` | Replay (`--live` re-runs agent module) |
+| `agent-autopsy clean --all` | Wipe local session store |
 
 **Optional dashboard** (requires `[server]`):
 
 ```bash
-autopsy serve                              # http://127.0.0.1:7823
-autopsy run examples/broken_agent.py         # dashboard + script + demo mode
+agent-autopsy serve                              # http://127.0.0.1:7823
+agent-autopsy run examples/broken_agent.py       # dashboard + script + demo mode
 ```
 
 ---
@@ -128,7 +128,7 @@ cfg = load_config()
 | `AUTOPSY_MAX_DETECTOR_EVAL_EVENTS` | `8192` | Cap events passed to detectors on very long runs |
 | `AUTOPSY_WRITER_SPILL_BATCH_EVENTS` | `64` | Disk spill batch size for kept sessions (`all` sampling) |
 | `AUTOPSY_WRITER_SPILL_INTERVAL_MS` | `250` | Max ms between spills when batch size not reached |
-| `AUTOPSY_EVENT_ENCODING` | `json` | `msgspec` for length-prefixed MessagePack (`pip install autopsy[fast]`) |
+| `AUTOPSY_EVENT_ENCODING` | `json` | `msgspec` for length-prefixed MessagePack (`pip install agent-autopsy[fast]`) |
 
 Run slow perf/regression checks: `pytest -m slow` (decorator p99, session-end merge, detector eval).
 
@@ -160,7 +160,7 @@ Label ideas for maintainers: `good first issue`, `detector`, `cli`, `docs`, `per
 
 ## License
 
-MIT — see [CHANGELOG.md](CHANGELOG.md) for release history.
+MIT — see [CHANGELOG.md](CHANGELOG.md) for release history. PyPI releases: **[agent-autopsy](https://pypi.org/project/agent-autopsy/)** · [RELEASING.md](RELEASING.md)
 
 ---
 
@@ -239,7 +239,7 @@ flowchart TB
 
 | Tier | Install | Modules |
 |------|---------|---------|
-| Core | `pip install autopsy` | `core`, `detectors`, `diagnostics`, `cli`, `config` |
+| Core | `pip install agent-autopsy` | `core`, `detectors`, `diagnostics`, `cli`, `config` |
 | Server | `[server]` | `server`, `demo` (routes gated by env) |
 | Diagnose LLMs | `[diagnose]` | `openai`, `anthropic`, `google-genai` imports inside agents |
 
@@ -401,11 +401,11 @@ export AUTOPSY_PRODUCTION_ALERTING=1   # strict + promote_on_warn + all detector
 
 **Full trace for detectors** (default on): `AUTOPSY_DETECTOR_FULL_TRACE=1` flushes the writer queue and merges up to `AUTOPSY_MAX_DETECTOR_RING_EVENTS` (default 8192) LLM/tool/error events even when the general capture buffer is smaller.
 
-**Offline re-run:** `autopsy detectors <id>` works for **v1 sessions** and **legacy v0** JSON blobs (events are converted to v1 types automatically).
+**Offline re-run:** `agent-autopsy detectors <id>` works for **v1 sessions** and **legacy v0** JSON blobs (events are converted to v1 types automatically).
 
 **False positives:** mark caught errors with `attributes={"handled": True}` on `ErrorEvent`, or use `lenient` profile / raise `AUTOPSY_DUPLICATE_TOOL_THRESHOLD`.
 
-**12 detectors enabled by default** (see `autopsy detectors --list` for full catalog):
+**12 detectors enabled by default** (see `agent-autopsy detectors --list` for full catalog):
 
 | Detector | What it catches |
 |----------|-----------------|
@@ -516,15 +516,15 @@ Entry: `autopsy.cli.main:cli` (Click group).
 
 Hackathon routes live in **`examples/demo_routes.py`** and register only when `AUTOPSY_DEMO=1`:
 
-- `autopsy run --demo` or `python examples/serve_with_demo.py`
+- `agent-autopsy run --demo` or `python examples/serve_with_demo.py`
 - `POST /api/demo/fix`, `/api/demo/reset`, `GET /api/demo/status`
 
-Example scripts (`examples/financial_research_pipeline.py`, etc.) read marker files under `~/.autopsy/fix_applied`. Production `autopsy serve` has no demo routes.
+Example scripts (`examples/financial_research_pipeline.py`, etc.) read marker files under `~/.autopsy/fix_applied`. Production `agent-autopsy serve` has no demo routes.
 
 ### Replay
 
-- **Simulated (default):** `autopsy replay <id>` — comparison table, no agent re-run
-- **Live:** `autopsy replay <id> --live` — re-imports `agent_module_path` from session manifest; requires root `@lens.trace` on that module
+- **Simulated (default):** `agent-autopsy replay <id>` — comparison table, no agent re-run
+- **Live:** `agent-autopsy replay <id> --live` — re-imports `agent_module_path` from session manifest; requires root `@lens.trace` on that module
 - Dashboard: enable **Live replay** on the diagnose panel (sends `live: true`)
 
 ---

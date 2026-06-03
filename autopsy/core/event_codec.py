@@ -28,7 +28,7 @@ def normalize_event_encoding(raw: str) -> EventEncoding:
         return "json"
     if value == "msgspec" and not msgspec_available():
         logger.warning(
-            "autopsy: msgspec not installed (pip install autopsy[fast]), using json",
+            "autopsy: msgspec not installed (pip install agent-autopsy[fast]), using json",
         )
         return "json"
     return value  # type: ignore[return-value]

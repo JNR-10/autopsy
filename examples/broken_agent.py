@@ -1,6 +1,6 @@
 """Broken agent demo for autopsy.
 
-Run with: autopsy run examples/broken_agent.py
+Run with: agent-autopsy run examples/broken_agent.py
 
 What it does:
 1. A "research" agent takes a hardcoded query.

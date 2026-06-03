@@ -21,4 +21,4 @@
 
 ## Test plan
 
-<!-- Commands you ran, e.g. `make test`, `autopsy show <id>`. -->
+<!-- Commands you ran, e.g. `make test`, `agent-autopsy show <id>`. -->

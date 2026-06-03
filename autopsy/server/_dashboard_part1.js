@@ -170,7 +170,7 @@ function renderSessions() {
   </div>`;
   if (!state.sessions.length) {
     root.innerHTML = header + `<div class="empty">no traces yet.<br/><br/>
-      run <code>autopsy run agent.py</code></div>`;
+      run <code>agent-autopsy run agent.py</code></div>`;
     bindClearTraces();
     return;
   }

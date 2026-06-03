@@ -4,7 +4,7 @@ Register on a FastAPI app when running examples locally:
 
     AUTOPSY_DEMO=1 python examples/serve_with_demo.py
 
-Or use: autopsy run --demo (loads this module from the repo checkout).
+Or use: agent-autopsy run --demo (loads this module from the repo checkout).
 """
 from __future__ import annotations
 

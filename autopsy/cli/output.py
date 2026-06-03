@@ -120,7 +120,7 @@ def build_show_summary(
     bundle: dict[str, Any],
     reader: LegacyBundleReader | None = None,
 ) -> dict[str, Any]:
-    """Structured summary for `autopsy show --json`."""
+    """Structured summary for `agent-autopsy show --json`."""
     session_id = bundle.get("session_id", "")
     summary = bundle.get("summary") or {}
     error_type = None
@@ -145,7 +145,7 @@ def format_show_human(
     console: Console,
     show_events: bool = False,
 ) -> None:
-    """Render session detail sections for `autopsy show`."""
+    """Render session detail sections for `agent-autopsy show`."""
     session_id = bundle.get("session_id", "")
     summary = bundle.get("summary") or {}
     status = summary.get("status", "unknown")
@@ -242,7 +242,7 @@ def build_session_list_rows(reader: LegacyBundleReader) -> list[dict[str, Any]]:
 
 
 def session_list_json(rows: list[dict[str, Any]]) -> str:
-    """Serialize session list rows for `autopsy ls --json`."""
+    """Serialize session list rows for `agent-autopsy ls --json`."""
     return json.dumps(rows, separators=(",", ":"), sort_keys=True)
 
 
@@ -251,16 +251,16 @@ def session_summary_json(
     *,
     reader: LegacyBundleReader | None = None,
 ) -> str:
-    """Serialize a session bundle summary for `autopsy show --json`."""
+    """Serialize a session bundle summary for `agent-autopsy show --json`."""
     data = build_show_summary(bundle, reader)
     return json.dumps(data, separators=(",", ":"), sort_keys=True)
 
 
 def diagnosis_result_json(result: DiagnosisResult) -> str:
-    """Serialize DiagnosisResult for `autopsy diagnose --json`."""
+    """Serialize DiagnosisResult for `agent-autopsy diagnose --json`."""
     return json.dumps(asdict(result), separators=(",", ":"), sort_keys=True)
 
 
 def replay_result_json(result: dict[str, Any]) -> str:
-    """Serialize replay result for `autopsy replay --json`."""
+    """Serialize replay result for `agent-autopsy replay --json`."""
     return json.dumps(result, separators=(",", ":"), sort_keys=True, default=str)

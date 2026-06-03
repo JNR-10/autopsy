@@ -1,6 +1,6 @@
 """Simple agent example - succeeds.
 
-Run with: autopsy run examples/simple_agent.py
+Run with: agent-autopsy run examples/simple_agent.py
 
 Demonstrates a multi-step async pipeline that completes successfully. Use this
 to show what a happy-path trace looks like in the dashboard.

@@ -192,7 +192,7 @@ class ReplayEngine:
             },
             "side_effect_warning": (
                 "Simulated replay - no real LLM/tool calls were made. "
-                "For live replay, use 'autopsy replay --live'."
+                "For live replay, use 'agent-autopsy replay --live'."
             ),
         }
 
