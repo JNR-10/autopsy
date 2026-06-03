@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **12 default semantic detectors** (was 3): tool failures, truncation, orphan LLM/tools, unexecuted tool calls, swallowed errors, token-empty output, content filter, duplicate tool args
+- Optional warn-tier detectors: `high_latency`, `error_storm`
+- `autopsy detectors` / `autopsy detectors <id>` — catalog and offline re-run on v1 sessions
+- `detectors/catalog.py` — names, descriptions, default set
+- `/health` returns `demo_enabled`
+
+### Changed
+
+- `autopsy run` no longer enables demo routes by default; use `autopsy run --demo`
+- Dashboard replay messaging when demo routes are absent (404)
+
 ## [0.2.0] - 2026-05-30
 
 ### Added

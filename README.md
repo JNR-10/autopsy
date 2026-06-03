@@ -79,6 +79,8 @@ autopsy diagnose <session_id> --model auto
 |---------|----------------|
 | `autopsy ls` | List saved sessions |
 | `autopsy show <id>` | Detail + detector verdicts (`--events` for timeline) |
+| `autopsy detectors` | List built-in detectors (`--list`) |
+| `autopsy detectors <id>` | Re-run detectors on a saved v1 session |
 | `autopsy diagnose <id>` | Root-cause analysis |
 | `autopsy tail <id>` | Last N events, or live stream for in-progress sessions |
 | `autopsy export` / `import` | Backup / restore sessions (tar.gz default) |
@@ -350,13 +352,26 @@ CLI, server, diagnose, and replay **never parse raw JSONL directly** — they go
 
 Pluggable detectors run at **`Session.end()`** on the bounded capture buffer (not the full trace if sampling discarded mid-flight — buffer holds recent events for error sessions).
 
-| Detector | Module | Fail condition |
-|----------|--------|----------------|
-| `empty_response` | `detectors/empty_response.py` | LLM content empty / whitespace |
-| `tool_loop` | `detectors/tool_loop.py` | Same tool ≥ `tool_loop_threshold` (default 5) |
-| `missing_output` | `detectors/missing_output.py` | Session ended without expected output |
+**12 detectors enabled by default** (see `autopsy detectors --list` for full catalog):
 
-**Registry:** `detectors/registry.py` — `resolve_enabled(LensConfig)` builds detector list from config/env.
+| Detector | What it catches |
+|----------|-----------------|
+| `empty_response` | Last LLM text empty with no later agent output |
+| `tool_loop` | Consecutive same-tool spam or total tool cap |
+| `missing_output` | `outcome=ok` but no LLM/agent output after work |
+| `tool_failure` | Tool end events with `error` set |
+| `truncated_output` | `finish_reason` length / max_tokens |
+| `orphan_tool_call` | More tool starts than ends |
+| `orphan_llm` | More LLM requests than responses |
+| `llm_tool_without_execution` | Model returned `tool_calls` but no tool ran |
+| `unhandled_exception` | `outcome=ok` with `ErrorEvent` recorded |
+| `token_budget_empty` | High completion tokens, empty visible content |
+| `content_filter` | Provider safety / content-filter block |
+| `duplicate_tool_args` | Same tool+args repeated (stuck retry) |
+
+**Optional (off by default):** `high_latency` (warn), `error_storm` (warn). Enable via `AUTOPSY_DETECTORS` or `@lens.trace(detectors=[...])`.
+
+**Registry:** `detectors/registry.py` + `detectors/catalog.py` — `resolve_enabled(LensConfig)` builds the list from config/env.
 
 **Runner:** `detectors/runner.py` — runs all detectors; never raises; emits `DetectorVerdictEvent`.
 
@@ -431,7 +446,7 @@ Entry: `autopsy.cli.main:cli` (Click group).
 
 **Diagnose wiring:** `_make_diagnose_agent` → `resolve_diagnose_provider` (patchable in tests).
 
-**Server commands:** `run` / `serve` require `[server]` extra; `run` sets `AUTOPSY_DEMO=1`.
+**Server commands:** `run` / `serve` require `[server]` extra; `run --demo` sets `AUTOPSY_DEMO=1` for hackathon examples.
 
 ---
 
