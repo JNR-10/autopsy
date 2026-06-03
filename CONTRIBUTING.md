@@ -154,7 +154,7 @@ We are **CLI-first**; optional server/dashboard changes should not block core ca
 
 - **User guide + internals:** [README.md](README.md) (developer guide section)
 - **Extension hooks:** detectors, `DiagnoseProvider`, `TraceStore`, exporters — table in README
-- **Design docs:** `docs/superpowers/specs/` (historical; README is the live reference)
+- **Design docs:** removed from repo; README developer guide is the live reference
 
 ---
 

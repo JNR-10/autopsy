@@ -650,21 +650,7 @@ autopsy/
   demo/                    # Demo routes (AUTOPSY_DEMO=1)
 examples/                  # Not shipped in wheel
 tests/
-docs/superpowers/          # Specs + implementation plans
 ```
-
----
-
-## Design documents
-
-| Doc | Topic |
-|-----|-------|
-| `docs/superpowers/specs/2026-05-29-capture-layer-hardening-design.md` | Capture / writer / on-disk format |
-| `docs/superpowers/specs/2026-05-30-failure-detection-design.md` | Detectors |
-| `docs/superpowers/specs/2026-05-30-cli-diagnose-ux-design.md` | CLI |
-| `docs/superpowers/specs/2026-05-30-provider-abstraction-design.md` | Diagnose providers |
-| `docs/superpowers/specs/2026-05-30-dashboard-docs-design.md` | Dashboard + docs |
-| `docs/superpowers/plans/*.md` | Step-by-step implementation plans |
 
 ---
 
