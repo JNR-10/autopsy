@@ -6,8 +6,9 @@ manifest.json on disk. If this file is missing or corrupted, the
 sessions directory.
 
 WAL mode is enabled so the dashboard / CLI can read concurrently while
-the writer thread inserts. Writes use a short-held connection opened per
-operation; we never hold the connection across calls.
+the writer finalizes sessions. Index rows are upserted only from
+``LocalFilesystemStore.finalize_session`` (not per ``write_events`` spill).
+Writes use a short-held connection opened per operation.
 """
 from __future__ import annotations
 

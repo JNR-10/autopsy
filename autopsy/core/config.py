@@ -32,6 +32,8 @@ class LensConfig:
     default_sample: str | float = "errors"
     flush_batch_size: int = 100
     flush_interval_ms: int = 50
+    writer_spill_batch_events: int = 64
+    writer_spill_interval_ms: int = 250
     queue_maxsize: int = 10_000
     max_total_disk_mb: int = 2048
     max_session_age_days: int = 30
@@ -118,6 +120,8 @@ def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
     for env_key, attr in (
         ("AUTOPSY_FLUSH_BATCH_SIZE", "flush_batch_size"),
         ("AUTOPSY_FLUSH_INTERVAL_MS", "flush_interval_ms"),
+        ("AUTOPSY_WRITER_SPILL_BATCH_EVENTS", "writer_spill_batch_events"),
+        ("AUTOPSY_WRITER_SPILL_INTERVAL_MS", "writer_spill_interval_ms"),
         ("AUTOPSY_QUEUE_MAXSIZE", "queue_maxsize"),
         ("AUTOPSY_MAX_TOTAL_DISK_MB", "max_total_disk_mb"),
         ("AUTOPSY_MAX_SESSION_AGE_DAYS", "max_session_age_days"),

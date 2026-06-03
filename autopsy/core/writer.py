@@ -59,6 +59,7 @@ class _SessionState:
     partial: bool = False
     buffer: list[BaseEvent] = field(default_factory=list)
     buffer_bytes: int = 0
+    last_spill_at: float = 0.0
     event_count: int = 0
     dropped_events: int = 0
     bundle_meta: dict[str, Any] = field(default_factory=dict)
@@ -317,6 +318,30 @@ class Writer:
             except Exception:
                 logger.exception("autopsy: writer batch processing failed")
 
+    def _should_spill_buffer(self, state: _SessionState) -> bool:
+        if not state.buffer:
+            return False
+        batch_n = self.config.writer_spill_batch_events
+        if batch_n > 0 and len(state.buffer) >= batch_n:
+            return True
+        interval_ms = self.config.writer_spill_interval_ms
+        if interval_ms > 0 and state.last_spill_at > 0:
+            elapsed_ms = (time.monotonic() - state.last_spill_at) * 1000.0
+            if elapsed_ms >= interval_ms:
+                return True
+        return False
+
+    def _spill_buffer_locked(self, state: _SessionState) -> None:
+        if not state.kept or not state.buffer or self.store is None:
+            return
+        try:
+            self.store.write_events(state.session_id, state.buffer)
+        except Exception:
+            logger.exception("autopsy: store.write_events failed")
+        state.buffer = []
+        state.buffer_bytes = 0
+        state.last_spill_at = time.monotonic()
+
     def _process_batch(self, batch: list) -> None:
         red = self.config.redactor
         cap_bytes = self.config.max_in_flight_buffer_mb * 1024 * 1024
@@ -355,13 +380,8 @@ class Writer:
                 if state.buffer_bytes > cap_bytes and not state.kept:
                     state.kept = True
                     state.partial = True
-                if state.kept and self.store is not None and state.buffer:
-                    try:
-                        self.store.write_events(state.session_id, state.buffer)
-                    except Exception:
-                        logger.exception("autopsy: store.write_events failed")
-                    state.buffer = []
-                    state.buffer_bytes = 0
+                if state.kept and self._should_spill_buffer(state):
+                    self._spill_buffer_locked(state)
 
     def _finalize_session_locked(
         self,
@@ -381,8 +401,7 @@ class Writer:
             return
         try:
             if state.buffer:
-                self.store.write_events(session_id, state.buffer)
-                state.buffer = []
+                self._spill_buffer_locked(state)
         except Exception:
             logger.exception("autopsy: final spill failed")
             state.partial = True

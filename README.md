@@ -126,6 +126,8 @@ cfg = load_config()
 | `AUTOPSY_DETECTOR_FULL_TRACE` | `0` | `1` merges spilled JSONL at session end (slower, more complete) |
 | `AUTOPSY_DETECTORS` | all built-ins | Shorter comma list = faster `end()` |
 | `AUTOPSY_MAX_DETECTOR_EVAL_EVENTS` | `8192` | Cap events passed to detectors on very long runs |
+| `AUTOPSY_WRITER_SPILL_BATCH_EVENTS` | `64` | Disk spill batch size for kept sessions (`all` sampling) |
+| `AUTOPSY_WRITER_SPILL_INTERVAL_MS` | `250` | Max ms between spills when batch size not reached |
 
 Run slow perf/regression checks: `pytest -m slow` (decorator p99, session-end merge, detector eval).
 
