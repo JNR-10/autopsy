@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from autopsy.detectors.defaults import DEFAULT_ENABLED_DETECTORS
+
 logger = logging.getLogger("autopsy.config")
 
 
@@ -38,14 +40,17 @@ class LensConfig:
     log_finalization: bool = True
     log_finalization_info_rate_s: int = 60
     redactor: Callable[[Any], Any] | None = field(default=None)
-    enabled_detectors: list[str] = field(default_factory=lambda: [
-        "empty_response", "tool_loop", "missing_output",
-    ])
+    enabled_detectors: list[str] = field(
+        default_factory=lambda: list(DEFAULT_ENABLED_DETECTORS),
+    )
     promote_on_warn: bool = False
     max_capture_buffer_events: int = 256
     max_capture_buffer_bytes: int = 2_097_152
     tool_loop_threshold: int = 5
     max_tool_calls: int = 50
+    latency_threshold_ms: int = 30_000
+    duplicate_tool_threshold: int = 3
+    error_storm_threshold: int = 3
 
 
 def _parse_sample(raw: str) -> str | float:
@@ -103,6 +108,9 @@ def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
         ("AUTOPSY_MAX_TOOL_CALLS", "max_tool_calls"),
         ("AUTOPSY_MAX_CAPTURE_BUFFER_EVENTS", "max_capture_buffer_events"),
         ("AUTOPSY_MAX_CAPTURE_BUFFER_BYTES", "max_capture_buffer_bytes"),
+        ("AUTOPSY_LATENCY_THRESHOLD_MS", "latency_threshold_ms"),
+        ("AUTOPSY_DUPLICATE_TOOL_THRESHOLD", "duplicate_tool_threshold"),
+        ("AUTOPSY_ERROR_STORM_THRESHOLD", "error_storm_threshold"),
     ):
         if env_key in os.environ:
             try:
