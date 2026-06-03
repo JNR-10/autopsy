@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Cheap event byte estimates for capture/writer buffer caps (`event_bytes` module)
 - `AUTOPSY_MAX_DETECTOR_EVAL_EVENTS` cap for session-end detector input
+- Slow perf tests for session-end merge and detector eval caps (`tests/perf/test_session_end.py`)
 - v1 sessions: server builds `node_index` + `dag_edges` from captured events (dashboard latency/detail work on v1)
 - `autopsy replay --live` and dashboard live-replay checkbox; manifest stores `agent_module_path` / checkpoints
 - Demo routes moved to `examples/demo_routes.py` (loaded via `AUTOPSY_DEMO=1`, not shipped in core wheel)

@@ -127,7 +127,7 @@ cfg = load_config()
 | `AUTOPSY_DETECTORS` | all built-ins | Shorter comma list = faster `end()` |
 | `AUTOPSY_MAX_DETECTOR_EVAL_EVENTS` | `8192` | Cap events passed to detectors on very long runs |
 
-Sync decorator overhead is checked in the optional slow perf job (`pytest -m slow`).
+Run slow perf/regression checks: `pytest -m slow` (decorator p99, session-end merge, detector eval).
 
 ---
 
