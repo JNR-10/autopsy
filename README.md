@@ -110,6 +110,8 @@ cfg = load_config()
 | `AUTOPSY_SAMPLE` | `errors` | Keep all sessions (`all`), only failures (`errors`), or off |
 | `AUTOPSY_SESSION_DIR` | auto | Where traces are stored |
 | `AUTOPSY_DETECTORS` | all built-ins | `off` or comma-separated detector names |
+| `AUTOPSY_DETECTOR_PROFILE` | — | `strict` \| `balanced` \| `lenient` (thresholds + buffers) |
+| `AUTOPSY_PROMOTE_ON_WARN` | `0` | `1` to persist sessions on warn-only detector hits |
 | `AUTOPSY_DIAGNOSE_MODEL` | `auto` | Diagnose provider (see developer guide) |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / … | — | LLM keys for diagnose |
 
@@ -350,7 +352,21 @@ CLI, server, diagnose, and replay **never parse raw JSONL directly** — they go
 
 ## Failure detection
 
-Pluggable detectors run at **`Session.end()`** on the bounded capture buffer (not the full trace if sampling discarded mid-flight — buffer holds recent events for error sessions).
+Pluggable detectors run at **`Session.end()`** on a **merged event view**: in-memory capture buffer (default **1024 events / 8 MB**), the writer’s in-flight buffer, and any events already spilled to disk for that session. Tune via `AUTOPSY_MAX_CAPTURE_BUFFER_*` or a detector profile (below).
+
+**Production profiles** (`AUTOPSY_DETECTOR_PROFILE`):
+
+| Profile | Use when |
+|---------|----------|
+| `strict` | High-signal alerting: smaller buffers, tighter thresholds, **`promote_on_warn=1`** (warn-tier detectors persist sessions) |
+| `balanced` | Default recommendation: larger buffers + enables `high_latency` / `error_storm` |
+| `lenient` | Noisy agents: disables `unhandled_exception`, `duplicate_tool_args`, `token_budget_empty`; very large buffers |
+
+For **warn-only production alerting**, set `AUTOPSY_DETECTOR_PROFILE=strict` (or `AUTOPSY_PROMOTE_ON_WARN=1`) and include `high_latency,error_storm` in `AUTOPSY_DETECTORS`.
+
+**Offline re-run:** `autopsy detectors <id>` works for **v1 sessions** and **legacy v0** JSON blobs (events are converted to v1 types automatically).
+
+**False positives:** mark caught errors with `attributes={"handled": True}` on `ErrorEvent`, or use `lenient` profile / raise `AUTOPSY_DUPLICATE_TOOL_THRESHOLD`.
 
 **12 detectors enabled by default** (see `autopsy detectors --list` for full catalog):
 

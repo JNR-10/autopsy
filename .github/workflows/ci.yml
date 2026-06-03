@@ -38,3 +38,16 @@ jobs:
 
       - name: Pytest
         run: python -m pytest tests/ -q
+
+  slow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,server,diagnose]"
+      - name: Slow tests (detector perf, crash recovery)
+        run: python -m pytest tests/ -q -m slow

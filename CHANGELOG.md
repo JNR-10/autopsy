@@ -11,14 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **12 default semantic detectors** (was 3): tool failures, truncation, orphan LLM/tools, unexecuted tool calls, swallowed errors, token-empty output, content filter, duplicate tool args
 - Optional warn-tier detectors: `high_latency`, `error_storm`
-- `autopsy detectors` / `autopsy detectors <id>` — catalog and offline re-run on v1 sessions
+- `autopsy detectors` / `autopsy detectors <id>` — catalog and offline re-run on v1 **and legacy v0** sessions
 - `detectors/catalog.py` — names, descriptions, default set
+- `detectors/profiles.py` — `strict` / `balanced` / `lenient` via `AUTOPSY_DETECTOR_PROFILE`
 - `/health` returns `demo_enabled`
+- `Session.events_for_detectors()` merges capture, writer buffer, and on-disk tail
+- `ErrorEvent.attributes.handled` suppresses `unhandled_exception` false positives
 
 ### Changed
 
 - `autopsy run` no longer enables demo routes by default; use `autopsy run --demo`
 - Dashboard replay messaging when demo routes are absent (404)
+- **Warn-tier alerting:** `promote_on_warn` now finalizes and persists sessions on warn-only hits
+- Default capture buffer for detectors: **1024 events / 8 MB** (was 256 / 2 MB)
+- `orphan_tool_call` uses start/end pairing; `llm_tool_without_execution` respects turn boundaries
+- CI `slow` job runs `pytest -m slow` (detector perf, crash recovery)
 
 ## [0.2.0] - 2026-05-30
 
