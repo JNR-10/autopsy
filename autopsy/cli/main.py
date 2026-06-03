@@ -354,7 +354,7 @@ def cmd_detectors(session_id: str | None, list_only: bool, as_json: bool) -> Non
     """List built-in detectors or re-run them on a saved v1 session."""
     import json as json_mod
 
-    from autopsy.core.compat import load_v1_base_events
+    from autopsy.core.compat import load_session_events_for_detectors
     from autopsy.core.config import load_config_from_env
     from autopsy.detectors.catalog import detector_catalog
     from autopsy.detectors.registry import resolve_enabled
@@ -390,14 +390,10 @@ def cmd_detectors(session_id: str | None, list_only: bool, as_json: bool) -> Non
 
     reader = _bundle_reader()
     sid = resolve_session_id(reader, session_id)
-    session_dir = reader.root / "sessions" / sid
-    if not (session_dir / "manifest.json").exists():
-        raise click.ClickException(
-            f"session {session_id!r} has no v1 manifest — detectors need v1 capture",
-        )
-    events = load_v1_base_events(session_dir)
-    manifest = json_mod.loads((session_dir / "manifest.json").read_text())
-    outcome = manifest.get("status", "ok")
+    try:
+        events, outcome = load_session_events_for_detectors(reader, sid)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
     if outcome not in ("ok", "error", "partial", "live"):
         outcome = "ok"
     cfg = load_config_from_env()

@@ -143,6 +143,176 @@ def load_v1_base_events(session_dir: Path) -> list[Any]:
     return out
 
 
+def _legacy_ts_ns(ev: dict[str, Any]) -> int:
+    if "timestamp_ns" in ev:
+        return int(ev["timestamp_ns"])
+    return int(float(ev.get("timestamp", 0)) * 1e9)
+
+
+def _legacy_event_id(ev: dict[str, Any], session_id: str, seq: int) -> str:
+    return str(ev.get("event_id") or ev.get("node_id") or f"{session_id}-legacy-{seq}")
+
+
+def legacy_event_to_base(
+    ev: dict[str, Any], *, session_id: str, seq: int,
+) -> Any | None:
+    """Best-effort map a legacy TraceBundle event dict to a v1 BaseEvent."""
+    from autopsy.core.events import (
+        AgentEndEvent,
+        AgentStartEvent,
+        ErrorEvent,
+        EventKind,
+        LLMRequestEvent,
+        LLMResponseEvent,
+        ToolCallEndEvent,
+        ToolCallStartEvent,
+    )
+
+    if ev.get("kind"):
+        try:
+            from autopsy.core.events import event_from_dict
+            return event_from_dict(ev)
+        except Exception:
+            return None
+
+    et = ev.get("event_type", "")
+    if et == "node_error":
+        err_type = str(ev.get("error_type", ""))
+        if err_type.startswith("detector:"):
+            return None
+        return ErrorEvent(
+            event_id=_legacy_event_id(ev, session_id, seq),
+            parent_id=ev.get("parent_node_id"),
+            session_id=session_id,
+            trace_id=session_id,
+            timestamp_ns=_legacy_ts_ns(ev),
+            kind=EventKind.ERROR,
+            error_type=err_type or "Error",
+            error_message=str(ev.get("error_message", "")),
+            traceback=str(ev.get("traceback", "")),
+            attributes=dict(ev.get("attributes") or {}),
+        )
+    if et == "llm_response":
+        return LLMResponseEvent(
+            event_id=_legacy_event_id(ev, session_id, seq),
+            parent_id=ev.get("parent_node_id"),
+            session_id=session_id,
+            trace_id=session_id,
+            timestamp_ns=_legacy_ts_ns(ev),
+            kind=EventKind.LLM_RESPONSE,
+            model=str(ev.get("model", "")),
+            content=str(ev.get("content") or ev.get("response_text") or ""),
+            tool_calls=list(ev.get("tool_calls") or []),
+            prompt_tokens=int(ev.get("prompt_tokens") or 0),
+            completion_tokens=int(ev.get("completion_tokens") or 0),
+            total_tokens=int(ev.get("total_tokens") or 0),
+            latency_ms=float(ev.get("latency_ms") or 0),
+            finish_reason=str(ev.get("finish_reason") or ""),
+        )
+    if et == "llm_request":
+        return LLMRequestEvent(
+            event_id=_legacy_event_id(ev, session_id, seq),
+            parent_id=ev.get("parent_node_id"),
+            session_id=session_id,
+            trace_id=session_id,
+            timestamp_ns=_legacy_ts_ns(ev),
+            kind=EventKind.LLM_REQUEST,
+            model=str(ev.get("model", "")),
+            messages=list(ev.get("messages") or []),
+        )
+    if et == "tool_call":
+        return ToolCallStartEvent(
+            event_id=_legacy_event_id(ev, session_id, seq),
+            parent_id=ev.get("parent_node_id"),
+            session_id=session_id,
+            trace_id=session_id,
+            timestamp_ns=_legacy_ts_ns(ev),
+            kind=EventKind.TOOL_CALL_START,
+            tool_name=str(ev.get("tool_name", "")),
+            tool_args=dict(ev.get("tool_args") or {}),
+        )
+    if et == "tool_result":
+        return ToolCallEndEvent(
+            event_id=_legacy_event_id(ev, session_id, seq),
+            parent_id=ev.get("parent_node_id"),
+            session_id=session_id,
+            trace_id=session_id,
+            timestamp_ns=_legacy_ts_ns(ev),
+            kind=EventKind.TOOL_CALL_END,
+            tool_name=str(ev.get("tool_name", "")),
+            result=ev.get("result"),
+            error=ev.get("error"),
+            duration_ms=float(ev.get("latency_ms") or ev.get("duration_ms") or 0),
+        )
+    if et == "node_end":
+        return AgentEndEvent(
+            event_id=_legacy_event_id(ev, session_id, seq),
+            parent_id=ev.get("node_id"),
+            session_id=session_id,
+            trace_id=session_id,
+            timestamp_ns=_legacy_ts_ns(ev),
+            kind=EventKind.AGENT_END,
+            duration_ms=float(ev.get("duration_ms") or 0),
+            output_preview=str(ev.get("output_data") or ev.get("output_preview") or ""),
+        )
+    if et == "node_start":
+        return AgentStartEvent(
+            event_id=_legacy_event_id(ev, session_id, seq),
+            parent_id=ev.get("parent_node_id"),
+            session_id=session_id,
+            trace_id=session_id,
+            timestamp_ns=_legacy_ts_ns(ev),
+            kind=EventKind.AGENT_START,
+            agent_name=str(ev.get("node_name", "")),
+            input_preview=str(ev.get("input_data") or ""),
+        )
+    return None
+
+
+def legacy_events_to_base(
+    events: list[dict[str, Any]], *, session_id: str,
+) -> list[Any]:
+    out = []
+    for i, ev in enumerate(events):
+        parsed = legacy_event_to_base(ev, session_id=session_id, seq=i)
+        if parsed is not None:
+            out.append(parsed)
+    return sorted(out, key=lambda e: e.timestamp_ns)
+
+
+def _outcome_from_bundle(bundle: dict[str, Any]) -> str:
+    summary = bundle.get("summary") or {}
+    status = str(summary.get("status", "success")).lower()
+    if status in ("error", "failed"):
+        return "error"
+    if status in ("partial", "running"):
+        return "partial"
+    return "ok"
+
+
+def load_session_events_for_detectors(
+    reader: LegacyBundleReader, session_id: str,
+) -> tuple[list[Any], str]:
+    """Load events + outcome for detector replay (v1 dir or legacy v0 JSON)."""
+    sessions = reader.root / "sessions"
+    v1_dir = sessions / session_id
+    if v1_dir.is_dir() and (v1_dir / "manifest.json").exists():
+        try:
+            manifest = json.loads((v1_dir / "manifest.json").read_text())
+        except Exception:
+            manifest = {}
+        status = manifest.get("status", "ok")
+        outcome = status if status in ("ok", "error", "partial", "live") else "ok"
+        return load_v1_base_events(v1_dir), outcome
+    bundle = read_v0_bundle(sessions / f"{session_id}.json")
+    if bundle is None:
+        raise FileNotFoundError(f"session {session_id!r} not found")
+    return (
+        legacy_events_to_base(bundle["events"], session_id=session_id),
+        _outcome_from_bundle(bundle),
+    )
+
+
 def _load_events_jsonl(session_dir: Path) -> list[dict[str, Any]]:
     gz = session_dir / "events.jsonl.gz"
     plain = session_dir / "events.jsonl"
