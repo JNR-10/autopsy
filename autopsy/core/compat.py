@@ -357,15 +357,9 @@ def load_session_events_for_detectors(
 
 
 def _load_events_jsonl(session_dir: Path) -> list[dict[str, Any]]:
-    gz = session_dir / "events.jsonl.gz"
-    plain = session_dir / "events.jsonl"
-    if gz.exists():
-        with gzip.open(gz, "rt", encoding="utf-8") as f:
-            return _parse_jsonl_lines(f)
-    if plain.exists():
-        with plain.open("r", encoding="utf-8") as f:
-            return _parse_jsonl_lines(f)
-    return []
+    from autopsy.core.event_codec import load_session_event_dicts
+
+    return load_session_event_dicts(session_dir)
 
 
 def read_v1_bundle(session_dir: Path) -> dict[str, Any] | None:

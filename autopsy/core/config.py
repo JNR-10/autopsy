@@ -34,6 +34,7 @@ class LensConfig:
     flush_interval_ms: int = 50
     writer_spill_batch_events: int = 64
     writer_spill_interval_ms: int = 250
+    event_encoding: str = "json"
     queue_maxsize: int = 10_000
     max_total_disk_mb: int = 2048
     max_session_age_days: int = 30
@@ -147,6 +148,10 @@ def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
         c.detector_full_trace = _parse_bool(
             os.environ["AUTOPSY_DETECTOR_FULL_TRACE"], c.detector_full_trace,
         )
+    if "AUTOPSY_EVENT_ENCODING" in os.environ:
+        from autopsy.core.event_codec import normalize_event_encoding
+
+        c.event_encoding = normalize_event_encoding(os.environ["AUTOPSY_EVENT_ENCODING"])
     return c
 
 

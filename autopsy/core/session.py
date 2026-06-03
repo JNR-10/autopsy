@@ -51,7 +51,9 @@ def get_writer(config: LensConfig) -> Writer:
     with _writer_lock:
         if _writer_singleton is None:
             root = config.session_dir or _pick_default_root()
-            store = LocalFilesystemStore(root=root)
+            store = LocalFilesystemStore(
+                root=root, event_encoding=config.event_encoding,
+            )
             _writer_singleton = Writer(config=config, store=store)
             _writer_singleton.start()
         return _writer_singleton

@@ -128,6 +128,7 @@ cfg = load_config()
 | `AUTOPSY_MAX_DETECTOR_EVAL_EVENTS` | `8192` | Cap events passed to detectors on very long runs |
 | `AUTOPSY_WRITER_SPILL_BATCH_EVENTS` | `64` | Disk spill batch size for kept sessions (`all` sampling) |
 | `AUTOPSY_WRITER_SPILL_INTERVAL_MS` | `250` | Max ms between spills when batch size not reached |
+| `AUTOPSY_EVENT_ENCODING` | `json` | `msgspec` for length-prefixed MessagePack (`pip install autopsy[fast]`) |
 
 Run slow perf/regression checks: `pytest -m slow` (decorator p99, session-end merge, detector eval).
 

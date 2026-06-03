@@ -42,7 +42,8 @@ diagnose = [
 ]
 langchain = ["langchain>=0.2.0", "langchain-openai>=0.1.0"]
 autogen = ["pyautogen>=0.2.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "respx>=0.21", "ruff"]
+fast = ["msgspec>=0.18.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "respx>=0.21", "ruff", "msgspec>=0.18.0"]
 
 [project.scripts]
 autopsy = "autopsy.cli.main:cli"

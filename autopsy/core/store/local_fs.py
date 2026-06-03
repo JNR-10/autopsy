@@ -6,7 +6,7 @@ Layout (matches the design spec):
       sessions/
         <session_id>/
           manifest.json
-          events.jsonl   (gzipped to events.jsonl.gz at finalize)
+          events.jsonl or events.msgpack (gzipped at finalize)
           artifacts/<sha256>.bin
       index.sqlite
 
@@ -28,6 +28,14 @@ import shutil
 from pathlib import Path
 from typing import Any, Iterable
 
+from ..event_codec import (
+    EventEncoding,
+    encode_events_chunk,
+    events_gz_name,
+    events_plain_name,
+    load_session_event_dicts,
+    normalize_event_encoding,
+)
 from ..events import BaseEvent, Manifest
 from .sqlite_index import SQLiteIndex
 
@@ -35,32 +43,36 @@ logger = logging.getLogger("autopsy.store")
 
 
 class LocalFilesystemStore:
-    def __init__(self, root: Path | str):
+    def __init__(self, root: Path | str, *, event_encoding: str = "json"):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "sessions").mkdir(parents=True, exist_ok=True)
         self.index = SQLiteIndex(self.root / "index.sqlite")
+        self.event_encoding: EventEncoding = normalize_event_encoding(event_encoding)
 
     def _session_dir(self, session_id: str) -> Path:
         return self.root / "sessions" / session_id
 
     def write_events(self, session_id: str, events: Iterable[BaseEvent]) -> None:
+        batch = list(events)
+        if not batch:
+            return
         sd = self._session_dir(session_id)
         sd.mkdir(parents=True, exist_ok=True)
         (sd / "artifacts").mkdir(exist_ok=True)
-        path = sd / "events.jsonl"
-        with path.open("a", encoding="utf-8") as f:
-            for ev in events:
-                f.write(ev.model_dump_json())
-                f.write("\n")
+        path = sd / events_plain_name(self.event_encoding)
+        chunk = encode_events_chunk(batch, self.event_encoding)
+        with path.open("ab") as f:
+            f.write(chunk)
 
     def finalize_session(self, manifest: Manifest) -> None:
         sd = self._session_dir(manifest.session_id)
         sd.mkdir(parents=True, exist_ok=True)
 
-        events_path = sd / "events.jsonl"
+        encoding = self.event_encoding
+        events_path = sd / events_plain_name(encoding)
         if not events_path.exists():
-            events_path.write_text("")
+            events_path.write_bytes(b"")
         if events_path.exists():
             with events_path.open("rb") as src:
                 src.flush()
@@ -68,10 +80,14 @@ class LocalFilesystemStore:
                     os.fsync(src.fileno())
                 except OSError:
                     pass
-            gz_path = sd / "events.jsonl.gz"
+            gz_path = sd / events_gz_name(encoding)
             with events_path.open("rb") as src, gzip.open(gz_path, "wb") as dst:
                 shutil.copyfileobj(src, dst)
             events_path.unlink()
+
+        extra = dict(manifest.extra or {})
+        extra["event_encoding"] = encoding
+        manifest = manifest.model_copy(update={"extra": extra})
 
         manifest_path = sd / "manifest.json"
         tmp = manifest_path.with_suffix(".json.tmp")
@@ -89,23 +105,7 @@ class LocalFilesystemStore:
         if not manifest_path.exists():
             return None
         manifest = json.loads(manifest_path.read_text())
-        events: list[dict[str, Any]] = []
-        gz = sd / "events.jsonl.gz"
-        plain = sd / "events.jsonl"
-        opener = (lambda: gzip.open(gz, "rt", encoding="utf-8")) if gz.exists() else (
-            (lambda: plain.open("r", encoding="utf-8")) if plain.exists() else None
-        )
-        if opener is not None:
-            with opener() as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        logger.warning("autopsy: skipping malformed event in %s", sd)
-                        continue
+        events = load_session_event_dicts(sd)
         return {"manifest": manifest, "events": events}
 
     def delete_session(self, session_id: str) -> None:

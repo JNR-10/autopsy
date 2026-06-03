@@ -1,14 +1,14 @@
 """Tail command logic: last N events for finalized sessions, poll for live."""
 from __future__ import annotations
 
-import gzip
 import json
 import sys
 import time
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from autopsy.core.compat import LegacyBundleReader
+from autopsy.core.event_codec import load_session_event_dicts
 
 
 def _session_dir(reader: LegacyBundleReader, session_id: str) -> Path:
@@ -26,42 +26,13 @@ def _manifest_status(session_dir: Path) -> str | None:
         return None
 
 
-def _events_file(session_dir: Path) -> Path | None:
-    plain = session_dir / "events.jsonl"
-    if plain.exists():
-        return plain
-    gz = session_dir / "events.jsonl.gz"
-    if gz.exists():
-        return gz
-    return None
-
-
-def _open_events(path: Path):
-    if path.suffix == ".gz" or path.name.endswith(".gz"):
-        return gzip.open(path, "rt", encoding="utf-8")
-    return path.open("r", encoding="utf-8")
-
-
-def _read_all_lines(path: Path) -> list[str]:
-    with _open_events(path) as f:
-        return [line.rstrip("\n") for line in f if line.strip()]
-
-
-def _emit_line(line: str, *, as_json: bool, out: TextIO) -> None:
+def _emit_event(ev: dict[str, Any], *, as_json: bool, out: TextIO) -> None:
     if as_json:
-        try:
-            obj = json.loads(line)
-            out.write(json.dumps(obj, separators=(",", ":"), sort_keys=True))
-        except json.JSONDecodeError:
-            out.write(json.dumps({"raw": line}, separators=(",", ":")))
+        out.write(json.dumps(ev, separators=(",", ":"), sort_keys=True))
         out.write("\n")
     else:
-        try:
-            ev = json.loads(line)
-            kind = ev.get("kind") or ev.get("event_type", "?")
-            out.write(f"{kind}\n")
-        except json.JSONDecodeError:
-            out.write(f"{line}\n")
+        kind = ev.get("kind") or ev.get("event_type", "?")
+        out.write(f"{kind}\n")
     out.flush()
 
 
@@ -82,31 +53,20 @@ def tail_session(
         raise FileNotFoundError(f"session directory not found: {session_id}")
 
     status = _manifest_status(session_dir)
-    events_path = _events_file(session_dir)
 
     if status != "live":
-        if events_path is None:
-            return
-        all_lines = _read_all_lines(events_path)
-        for line in all_lines[-lines:]:
-            _emit_line(line, as_json=as_json, out=sink)
+        events = load_session_event_dicts(session_dir)
+        for ev in events[-lines:]:
+            _emit_event(ev, as_json=as_json, out=sink)
         return
-
-    if events_path is None:
-        events_path = session_dir / "events.jsonl"
 
     seen = 0
     polls = 0
     while True:
-        if events_path.exists():
-            with events_path.open("r", encoding="utf-8") as f:
-                for i, line in enumerate(f):
-                    line = line.rstrip("\n")
-                    if not line.strip():
-                        continue
-                    if i >= seen:
-                        _emit_line(line, as_json=as_json, out=sink)
-                        seen = i + 1
+        events = load_session_event_dicts(session_dir)
+        for ev in events[seen:]:
+            _emit_event(ev, as_json=as_json, out=sink)
+        seen = len(events)
 
         current_status = _manifest_status(session_dir)
         if current_status is not None and current_status != "live":
@@ -115,5 +75,4 @@ def tail_session(
         polls += 1
         if max_polls is not None and polls >= max_polls:
             break
-
         time.sleep(poll_interval_s)
