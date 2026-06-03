@@ -18,6 +18,8 @@ from autopsy.detectors.registry import builtin_detectors
 from autopsy.detectors.token_budget_empty import TokenBudgetEmptyDetector
 from autopsy.detectors.tool_failure import ToolFailureDetector
 from autopsy.detectors.truncated_output import TruncatedOutputDetector
+from autopsy.detectors.error_storm import ErrorStormDetector
+from autopsy.detectors.high_latency import HighLatencyDetector
 from autopsy.detectors.unhandled_exception import UnhandledExceptionDetector
 
 
@@ -80,6 +82,11 @@ def test_orphan_tool_call():
     det = OrphanToolCallDetector()
     v = det.evaluate([_tool_start(1), _tool_start(2)], outcome="ok")
     assert v is not None
+
+
+def test_orphan_tool_call_balanced_passes():
+    det = OrphanToolCallDetector()
+    assert det.evaluate([_tool_start(1), _tool_end(2)], outcome="ok") is None
 
 
 def test_orphan_llm():
@@ -152,3 +159,71 @@ def test_llm_tool_with_execution_passes():
         _tool_end(3),
     ]
     assert det.evaluate(events, outcome="ok") is None
+
+
+def test_llm_tool_fails_when_next_turn_without_tool():
+    det = LLMToolWithoutExecutionDetector()
+    req = LLMRequestEvent(
+        event_id="01HXY00000000000000000099",
+        parent_id=None,
+        session_id="s",
+        trace_id="s",
+        timestamp_ns=4,
+        kind=EventKind.LLM_REQUEST,
+        model="m",
+    )
+    events = [
+        _llm_resp(1, tool_calls=[{"id": "1"}]),
+        _tool_start(2),
+        req,
+        _llm_resp(5, tool_calls=[{"id": "2"}]),
+    ]
+    v = det.evaluate(events, outcome="ok")
+    assert v is not None
+
+
+def test_unhandled_skips_handled_attribute():
+    det = UnhandledExceptionDetector()
+    err = ErrorEvent(
+        event_id="01HXY00000000000000000004",
+        parent_id=None,
+        session_id="s",
+        trace_id="s",
+        timestamp_ns=4,
+        kind=EventKind.ERROR,
+        error_type="ValueError",
+        error_message="caught",
+        traceback="",
+        attributes={"handled": True},
+    )
+    assert det.evaluate([err], outcome="ok") is None
+
+
+def test_high_latency_warn():
+    from autopsy.core.config import LensConfig
+
+    det = HighLatencyDetector(config=LensConfig(latency_threshold_ms=100))
+    v = det.evaluate([_llm_resp(1, latency_ms=500.0)], outcome="ok")
+    assert v is not None and v.verdict == "warn"
+
+
+def test_error_storm_warn():
+    from autopsy.core.config import LensConfig
+
+    det = ErrorStormDetector(config=LensConfig(error_storm_threshold=2))
+    errors = [
+        ErrorEvent(
+            event_id=f"01HXY00000000000000000{i:04d}",
+            parent_id=None,
+            session_id="s",
+            trace_id="s",
+            timestamp_ns=i,
+            kind=EventKind.ERROR,
+            error_type="E",
+            error_message="x",
+            traceback="",
+        )
+        for i in range(2)
+    ]
+    v = det.evaluate(errors, outcome="error")
+    assert v is not None and v.verdict == "warn"
