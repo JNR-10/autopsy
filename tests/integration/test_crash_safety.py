@@ -6,6 +6,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from pathlib import Path
 
 import pytest
 
@@ -13,39 +14,62 @@ from autopsy.core.events import Manifest
 from autopsy.core.store.local_fs import LocalFilesystemStore
 
 
+def _session_has_spilled_events(session_dir: Path) -> bool:
+    for name in ("events.jsonl", "events.msgpack", "events.jsonl.gz", "events.msgpack.gz"):
+        if (session_dir / name).exists():
+            return True
+    return False
+
+
 @pytest.mark.slow
 def test_sigkill_mid_session_leaves_recoverable_files(tmp_path):
+    """After SIGKILL, at least one spilled events file must exist on disk.
+
+    Writer batching means the session directory appears only after the first
+    spill, not at declare_session — the child must emit enough events first.
+    """
     script = tmp_path / "run.py"
     script.write_text(textwrap.dedent(f"""
         import os, time
         os.environ["AUTOPSY_SESSION_DIR"] = {str(tmp_path)!r}
         os.environ["AUTOPSY_SAMPLE"] = "all"
-        from autopsy import lens
+        os.environ["AUTOPSY_WRITER_SPILL_BATCH_EVENTS"] = "8"
+        from autopsy import lens, log
 
         @lens.trace
         def slow():
-            for _ in range(1000):
+            for i in range(200):
+                log("step", index=i)
                 time.sleep(0.01)
 
         slow()
     """).strip())
 
-    proc = subprocess.Popen([sys.executable, str(script)])
+    proc = subprocess.Popen(
+        [sys.executable, str(script)],
+        stderr=subprocess.PIPE,
+        cwd=str(tmp_path.parent),
+    )
     sessions = tmp_path / "sessions"
-    deadline = time.monotonic() + 5.0
+    session_dir: Path | None = None
+    deadline = time.monotonic() + 15.0
     while time.monotonic() < deadline:
-        if sessions.exists() and any(sessions.iterdir()):
+        if sessions.exists():
+            for d in sessions.iterdir():
+                if d.is_dir() and _session_has_spilled_events(d):
+                    session_dir = d
+                    break
+        if session_dir is not None:
             break
         time.sleep(0.05)
+    assert session_dir is not None, (
+        "no spilled events on disk before SIGKILL "
+        f"(stderr={proc.stderr.read().decode()[:500]!r})"
+    )
     proc.send_signal(signal.SIGKILL)
     proc.wait(timeout=2.0)
 
-    assert sessions.exists()
-    dirs = [d for d in sessions.iterdir() if d.is_dir()]
-    assert dirs, "no session directory created"
-    sd = dirs[0]
-    events_path = sd / "events.jsonl"
-    assert events_path.exists() or (sd / "events.jsonl.gz").exists()
+    assert _session_has_spilled_events(session_dir)
 
 
 def test_reindex_marks_unfinalized_session_partial(tmp_path):
