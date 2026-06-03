@@ -24,8 +24,7 @@ function getActiveBundleLike() {
   return state.bundleCache[sid] || null;
 }
 
-function buildLiveBundle() {
-  const events = state.liveEvents.slice();
+function buildIndexFromEvents(events) {
   const node_index = {};
   const dag_edges = [];
   for (const e of events) {
@@ -52,6 +51,29 @@ function buildLiveBundle() {
       node_index[nid].tool_events.push(e);
     }
   }
+  return { node_index, dag_edges };
+}
+
+function normalizeBundle(bundle) {
+  if (!bundle || !bundle.events) return bundle;
+  if (bundle.node_index && Object.keys(bundle.node_index).length) return bundle;
+  const { node_index, dag_edges } = buildIndexFromEvents(bundle.events);
+  let totalTokens = 0, errorCount = 0;
+  for (const e of bundle.events) {
+    if (e.event_type === "llm_response") totalTokens += (e.total_tokens || 0);
+    if (e.event_type === "node_error") errorCount++;
+  }
+  const summary = Object.assign({}, bundle.summary || {}, {
+    node_count: Object.keys(node_index).length,
+    error_count: errorCount,
+    total_tokens: totalTokens,
+  });
+  return Object.assign({}, bundle, { node_index, dag_edges, summary });
+}
+
+function buildLiveBundle() {
+  const events = state.liveEvents.slice();
+  const { node_index, dag_edges } = buildIndexFromEvents(events);
   const sessStart = events.find(e => e.event_type === "session_start") || {};
   let totalTokens = 0, errorCount = 0;
   for (const e of events) {

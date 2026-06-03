@@ -29,7 +29,8 @@ def _write_v1(tmp_path: Path, sid: str) -> None:
             kind=EventKind.AGENT_START, agent_name="a",
         ))
         w.enqueue(AgentEndEvent(
-            event_id="01HXY00000000000000000000B", parent_id=None,
+            event_id="01HXY00000000000000000000B",
+            parent_id="01HXY00000000000000000000A",
             session_id=sid, trace_id=sid, timestamp_ns=2,
             kind=EventKind.AGENT_END, duration_ms=1.0,
         ))
@@ -57,3 +58,8 @@ def test_diagnose_load_works_off_legacy_reader(tmp_path):
     bundle = reader.load("01HXY000000000000000000001")
     assert bundle is not None
     assert any(e["event_type"] == "node_start" for e in bundle["events"])
+    assert bundle["node_index"]
+    start_id = next(
+        e["node_id"] for e in bundle["events"] if e["event_type"] == "node_start"
+    )
+    assert bundle["node_index"][start_id].get("end_event")

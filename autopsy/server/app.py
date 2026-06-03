@@ -20,8 +20,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from autopsy import __version__
-from autopsy.config import demo_enabled
 from autopsy.core.compat import LegacyBundleReader
+from autopsy.server.demo_loader import demo_env_enabled, register_demo_routes_if_env
 from autopsy.core.config import default_session_dir
 from autopsy.core.replay import ReplayEngine
 
@@ -66,12 +66,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    if demo_enabled():
-        from autopsy.demo.routes import clear_fix_markers, register_demo_routes
-
-        clear_fix_markers()
-        register_demo_routes(app, ws_manager)
-
     # --- REST endpoints --------------------------------------------------------
 
     @app.get("/health")
@@ -82,7 +76,7 @@ def create_app() -> FastAPI:
             "version": VERSION,
             "session_dir": str(sess_dir),
             "sessions_count": len(_bundle_reader().list()),
-            "demo_enabled": demo_enabled(),
+            "demo_enabled": demo_env_enabled(),
         }
 
     @app.get("/api/sessions")
@@ -241,6 +235,9 @@ def create_app() -> FastAPI:
                     break
         finally:
             await ws_manager.disconnect(ws)
+
+    # Demo routes must register before SPA catch-all (which 404s api/* paths).
+    register_demo_routes_if_env(app)
 
     # --- Static files / fallback HTML ------------------------------------------
 

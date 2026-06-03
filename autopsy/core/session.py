@@ -123,6 +123,10 @@ class Session:
         self._detector_ring: deque[BaseEvent] = deque()
         self._detectors: list[str] | None = None
         self._detector_overrides: Any | None = None
+        self.agent_module_path: str = ""
+        self.agent_fn_name: str = ""
+        self.input_query: str = ""
+        self.replay_checkpoints: dict[str, Any] = {}
 
     def capture_events(self) -> list[BaseEvent]:
         return list(self._capture)
@@ -313,7 +317,15 @@ class Session:
                 w = self.writer
                 if w is not None:
                     w.end_session(
-                        self.session_id, outcome=outcome, error_type=error_type,
+                        self.session_id,
+                        outcome=outcome,
+                        error_type=error_type,
+                        bundle_meta={
+                            "agent_module_path": self.agent_module_path,
+                            "agent_fn_name": self.agent_fn_name,
+                            "input_query": self.input_query,
+                            "replay_checkpoints": self.replay_checkpoints,
+                        },
                     )
             self._capture.clear()
             self._capture_bytes = 0

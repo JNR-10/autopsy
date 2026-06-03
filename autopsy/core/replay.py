@@ -17,6 +17,7 @@ The CLI defaults to simulated replay for safety; pass --live to use live mode.
 """
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import importlib.util
 import logging
@@ -31,6 +32,37 @@ _REPLAY_MODE: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_REPLAY_MODE", default=False)
 _REPLAY_OUTPUTS: contextvars.ContextVar[dict] = contextvars.ContextVar(
     "_REPLAY_OUTPUTS", default={})
+_REPLAY_NODE_ORDER: contextvars.ContextVar[list[str]] = contextvars.ContextVar(
+    "_REPLAY_NODE_ORDER", default=[])
+_REPLAY_FREEZE_INDEX: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "_REPLAY_FREEZE_INDEX", default=0)
+
+
+def is_replay_mode() -> bool:
+    return _REPLAY_MODE.get()
+
+
+def consume_frozen_output() -> Any | None:
+    """Return frozen output for the current traced call index, or None to run normally."""
+    if not _REPLAY_MODE.get():
+        return None
+    order = _REPLAY_NODE_ORDER.get()
+    outputs = _REPLAY_OUTPUTS.get()
+    idx = _REPLAY_FREEZE_INDEX.get()
+    if idx >= len(order):
+        return None
+    node_id = order[idx]
+    _REPLAY_FREEZE_INDEX.set(idx + 1)
+    if node_id not in outputs:
+        return None
+    raw = outputs[node_id]
+    if isinstance(raw, str):
+        try:
+            import json
+            return json.loads(raw)
+        except Exception:
+            return raw
+    return raw
 
 
 class ReplayEngine:
@@ -171,15 +203,20 @@ class ReplayEngine:
         prompt_patch: Optional[str] = None,
     ) -> dict:
         """Re-import the agent module and run it; mocks pre-checkpoint outputs."""
+        node_order = self._node_order()
         frozen_node_ids = self._nodes_before(target_node_id)
         checkpoints = self.bundle.get("replay_checkpoints") or {}
-        frozen_outputs = {
-            nid: checkpoints.get(nid, "null")
-            for nid in frozen_node_ids
-        }
+        frozen_outputs = {nid: checkpoints.get(nid) for nid in frozen_node_ids}
+        for nid in frozen_node_ids:
+            if nid not in frozen_outputs or frozen_outputs[nid] is None:
+                ni = (self.bundle.get("node_index") or {}).get(nid, {})
+                end = ni.get("end_event") or {}
+                frozen_outputs[nid] = end.get("output_data", end.get("output_preview"))
 
         mode_token = _REPLAY_MODE.set(True)
         out_token = _REPLAY_OUTPUTS.set(frozen_outputs)
+        order_token = _REPLAY_NODE_ORDER.set(node_order)
+        idx_token = _REPLAY_FREEZE_INDEX.set(0)
         try:
             module_path = self.bundle.get("agent_module_path", "")
             fn_qualname = self.bundle.get("agent_fn_name", "")
@@ -198,14 +235,30 @@ class ReplayEngine:
             fn = getattr(module, attr, None)
             if fn is None:
                 raise AttributeError(f"Function {attr!r} not found in module")
-            result = await fn(self.bundle.get("input_query", ""))
-            return {"status": "success", "result": result}
+            query = self.bundle.get("input_query", "")
+            if asyncio.iscoroutinefunction(fn):
+                result = await fn(query)
+            else:
+                result = fn(query)
+            return {"status": "success", "result": result, "mode": "live"}
         finally:
             try:
                 _REPLAY_MODE.reset(mode_token)
                 _REPLAY_OUTPUTS.reset(out_token)
+                _REPLAY_NODE_ORDER.reset(order_token)
+                _REPLAY_FREEZE_INDEX.reset(idx_token)
             except Exception:
                 pass
+
+    def _node_order(self) -> list[str]:
+        order: list[str] = []
+        for ev in self.bundle["events"]:
+            if ev.get("event_type") != "node_start":
+                continue
+            nid = ev.get("node_id")
+            if nid and nid not in order:
+                order.append(nid)
+        return order
 
     def _nodes_before(self, target_node_id: str) -> list[str]:
         """Return node_ids that appear before target in execution order."""

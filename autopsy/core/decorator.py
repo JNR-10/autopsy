@@ -6,9 +6,13 @@ import functools
 import logging
 import time
 
+import inspect
+from pathlib import Path
+
 from .config import LensConfig as _LensConfig
 from autopsy.detectors.overrides import DetectorCallOverrides
 from .context import current_parent_id, current_session, set_parent_id, set_session
+from .replay import consume_frozen_output
 from .events import AgentEndEvent, AgentStartEvent, ErrorEvent, EventKind
 from .session import Session as _Session
 from .ulid import new_ulid
@@ -113,7 +117,7 @@ class LensDecorator:
             )
         return sync_wrapper
 
-    def _begin_or_join(self, sample, agent_name, detectors=None, overrides=None):
+    def _begin_or_join(self, sample, agent_name, detectors=None, overrides=None, fn=None):
         existing = current_session()
         if existing is not None:
             return existing, False
@@ -121,6 +125,12 @@ class LensDecorator:
             config=self.config, agent_name=agent_name, sample=sample,
             detectors=detectors, detector_overrides=overrides,
         )
+        if fn is not None:
+            try:
+                session.agent_module_path = str(Path(inspect.getfile(fn)).resolve())
+                session.agent_fn_name = f"{fn.__module__}.{fn.__qualname__}"
+            except Exception:
+                pass
         set_session(session)
         return session, True
 
@@ -159,6 +169,8 @@ class LensDecorator:
             session.record_event(ev)
         except Exception:
             pass
+        if node_id:
+            session.replay_checkpoints[node_id] = output_preview
 
     def _emit_error(self, session, node_id, parent_id, exc):
         import traceback as tb
@@ -182,8 +194,10 @@ class LensDecorator:
         self, fn, args, kwargs, *, sample, agent_name, detectors=None, overrides=None,
     ):
         session, is_root = self._begin_or_join(
-            sample, agent_name, detectors=detectors, overrides=overrides,
+            sample, agent_name, detectors=detectors, overrides=overrides, fn=fn,
         )
+        if is_root and args:
+            session.input_query = _preview(args[0])
         track = session.sample is not SampleMode.ERRORS
         node_id = None
         parent_token = None
@@ -194,7 +208,11 @@ class LensDecorator:
             parent_token = set_parent_id(node_id)
         start = time.perf_counter()
         try:
-            result = await fn(*args, **kwargs)
+            frozen = consume_frozen_output()
+            if frozen is not None:
+                result = frozen
+            else:
+                result = await fn(*args, **kwargs)
             if track:
                 self._emit_agent_end(
                     session, node_id, current_parent_id(),
@@ -228,8 +246,10 @@ class LensDecorator:
         self, fn, args, kwargs, *, sample, agent_name, detectors=None, overrides=None,
     ):
         session, is_root = self._begin_or_join(
-            sample, agent_name, detectors=detectors, overrides=overrides,
+            sample, agent_name, detectors=detectors, overrides=overrides, fn=fn,
         )
+        if is_root and args:
+            session.input_query = _preview(args[0])
         track = session.sample is not SampleMode.ERRORS
         node_id = None
         parent_token = None
@@ -240,7 +260,11 @@ class LensDecorator:
             parent_token = set_parent_id(node_id)
         start = time.perf_counter()
         try:
-            result = fn(*args, **kwargs)
+            frozen = consume_frozen_output()
+            if frozen is not None:
+                result = frozen
+            else:
+                result = fn(*args, **kwargs)
             if track:
                 self._emit_agent_end(
                     session, node_id, current_parent_id(),

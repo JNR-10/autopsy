@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- v1 sessions: server builds `node_index` + `dag_edges` from captured events (dashboard latency/detail work on v1)
+- `autopsy replay --live` and dashboard live-replay checkbox; manifest stores `agent_module_path` / checkpoints
+- Demo routes moved to `examples/demo_routes.py` (loaded via `AUTOPSY_DEMO=1`, not shipped in core wheel)
 - `AUTOPSY_PRODUCTION_ALERTING=1` preset (strict + warn persistence + full detector list)
 - Detector ring (`max_detector_ring_events`) and `Writer.flush_now()` for full-trace evaluation
 - Per-agent `@lens.trace(detector_profile=..., tool_loop_threshold=..., promote_on_warn=...)`
@@ -24,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `autopsy run` no longer enables demo routes by default; use `autopsy run --demo`
+- `autopsy run` no longer enables demo routes by default; use `autopsy run --demo` or `examples/serve_with_demo.py`
+- Removed `autopsy.demo` from published package; core server has no demo imports
 - Dashboard replay messaging when demo routes are absent (404)
 - **Warn-tier alerting:** `promote_on_warn` now finalizes and persists sessions on warn-only hits
 - Default capture buffer for detectors: **1024 events / 8 MB** (was 256 / 2 MB)

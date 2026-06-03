@@ -471,9 +471,14 @@ def cmd_import(file: str) -> None:
 @click.argument("session_id")
 @click.option("--from-node", "node_id", default=None)
 @click.option("--fix", default="Applied developer fix")
+@click.option(
+    "--live",
+    is_flag=True,
+    help="Re-import agent module and re-run (requires agent_module_path in session)",
+)
 @click.option("--json", "as_json", is_flag=True, help="Emit replay result JSON to stdout")
-def cmd_replay(session_id: str, node_id: str, fix: str, as_json: bool) -> None:
-    """Replay a saved session from the first error node (simulated; does not re-run agent)."""
+def cmd_replay(session_id: str, node_id: str, fix: str, live: bool, as_json: bool) -> None:
+    """Replay a saved session (simulated by default; --live re-runs the agent)."""
     from autopsy.cli.output import replay_result_json
     from autopsy.cli.resolve import resolve_session_id
     from autopsy.core.replay import ReplayEngine
@@ -492,11 +497,23 @@ def cmd_replay(session_id: str, node_id: str, fix: str, as_json: bool) -> None:
         raise click.ClickException(
             "No error node found — pass --from-node NODE_ID")
     engine = ReplayEngine(bundle)
+    if live:
+        result = asyncio.run(
+            engine.live_replay_from_node(node_id),
+        )
+        if as_json:
+            click.echo(replay_result_json(result))
+            return
+        console.print(f"[green]Live replay OK[/green]: {result.get('result', result)!r}")
+        return
     result = engine.simulated_replay(node_id, fix)
     if as_json:
         click.echo(replay_result_json(result))
         return
-    comp = result["comparison"]
+    comp = result.get("comparison")
+    if not comp:
+        console.print(result)
+        return
     console.print(f"[bold]↻ Replay from {node_id[:8]}[/bold]")
     console.print(f"fix: {fix}\n")
     table = Table(show_header=True)

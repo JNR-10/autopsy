@@ -60,6 +60,7 @@ class _SessionState:
     buffer_bytes: int = 0
     event_count: int = 0
     dropped_events: int = 0
+    bundle_meta: dict[str, Any] = field(default_factory=dict)
 
 
 class Writer:
@@ -125,9 +126,18 @@ class Writer:
         except Exception:
             self.dropped_events_total += 1
 
-    def end_session(self, session_id: str, *, outcome: str, error_type: str | None = None) -> None:
+    def end_session(
+        self,
+        session_id: str,
+        *,
+        outcome: str,
+        error_type: str | None = None,
+        bundle_meta: dict[str, Any] | None = None,
+    ) -> None:
         try:
-            self._queue.put_nowait(("END", session_id, outcome, error_type))
+            self._queue.put_nowait(
+                ("END", session_id, outcome, error_type, bundle_meta or {}),
+            )
         except Exception:
             pass
 
@@ -154,7 +164,7 @@ class Writer:
             stale = list(self._sessions.keys())
         for sid in stale:
             try:
-                self._queue.put_nowait(("END", sid, "partial", None))
+                self._queue.put_nowait(("END", sid, "partial", None, {}))
             except Exception:
                 pass
         while time.monotonic() < deadline:
@@ -312,8 +322,9 @@ class Writer:
         with self._lock:
             for raw in batch:
                 if isinstance(raw, tuple) and raw and raw[0] == "END":
-                    _, sid, outcome, error_type = raw
-                    self._finalize_session_locked(sid, outcome, error_type)
+                    _, sid, outcome, error_type, *rest = raw
+                    meta = rest[0] if rest and isinstance(rest[0], dict) else {}
+                    self._finalize_session_locked(sid, outcome, error_type, meta)
                     continue
                 ev: BaseEvent | None = raw
                 if red is not None:
@@ -354,7 +365,11 @@ class Writer:
                     state.buffer = []
 
     def _finalize_session_locked(
-        self, session_id: str, outcome: str, error_type: str | None
+        self,
+        session_id: str,
+        outcome: str,
+        error_type: str | None,
+        bundle_meta: dict[str, Any] | None = None,
     ) -> None:
         state = self._sessions.pop(session_id, None)
         if state is None:
@@ -381,6 +396,7 @@ class Writer:
         else:
             status = "ok"
         try:
+            extra = {**(state.bundle_meta or {}), **(bundle_meta or {})}
             manifest = Manifest(
                 session_id=session_id,
                 agent_name=state.agent_name,
@@ -395,6 +411,7 @@ class Writer:
                 autopsy_version="0.2.0",
                 wall_clock_ns_at_start=state.wall_ns,
                 monotonic_ns_at_start=state.monotonic_ns,
+                extra=extra,
             )
             self.store.finalize_session(manifest)
         except Exception:

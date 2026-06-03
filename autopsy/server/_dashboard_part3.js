@@ -131,6 +131,9 @@ function renderDiagnosis(d) {
       ${d.estimated_latency_savings_ms ?
         `<div style="color:var(--muted);font-size:11px;">est. savings: ${Math.round(d.estimated_latency_savings_ms)}ms</div>` : ""}` : ""}
     <div class="btn-row" style="margin-top:12px;">
+      <label style="display:block;margin:8px 0;font-size:12px;color:var(--muted);">
+        <input type="checkbox" id="chk-live-replay" /> Live replay (re-run agent module)
+      </label>
       <button class="btn" id="btn-apply-replay">↻ Apply fix &amp; replay</button>
     </div>
   </div>`;
@@ -201,11 +204,15 @@ async function runReplay(nodeId) {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ node_id: nodeId, fix_description: fix }),
+        body: JSON.stringify({
+          node_id: nodeId,
+          fix_description: fix,
+          live: !!state.liveReplay,
+        }),
       });
     if (!r.ok) throw new Error(`status ${r.status}`);
     state.replayResult = await r.json();
-    // Also signal the live demo pipeline so the next loop iteration succeeds.
+    if (state.demoEnabled) {
     try {
       const r2 = await fetch("/api/demo/fix", { method: "POST" });
       if (r2.ok) {
@@ -218,6 +225,10 @@ async function runReplay(nodeId) {
       }
     } catch (_) {
       toast("Replay complete (simulated)");
+    }
+    } else {
+      const mode = state.replayResult.mode === "live" ? "live" : "simulated";
+      toast(`Replay complete (${mode})`);
     }
     renderCenter();
     renderHeaderStatus();
@@ -239,7 +250,22 @@ async function demoReset() {
   }
 }
 
+async function fetchHealth() {
+  try {
+    const r = await fetch("/health");
+    if (r.ok) {
+      const h = await r.json();
+      state.demoEnabled = !!h.demo_enabled;
+    }
+  } catch (_) { /* ignore */ }
+}
+
 async function fetchDemoStatus() {
+  if (!state.demoEnabled) {
+    state.demoFixed = false;
+    renderHeaderStatus();
+    return;
+  }
   try {
     const r = await fetch("/api/demo/status");
     if (r.ok) {
@@ -261,6 +287,12 @@ function renderHeaderStatus() {
   }
 }
 
+document.addEventListener("change", (e) => {
+  if (e.target.id === "chk-live-replay") {
+    state.liveReplay = e.target.checked;
+  }
+});
+
 document.addEventListener("click", (e) => {
   if (e.target.id === "btn-apply-replay" && state.activeNodeId) {
     runReplay(state.activeNodeId);
@@ -270,6 +302,8 @@ document.addEventListener("click", (e) => {
   }
 });
 
-fetchSessions();
-fetchDemoStatus();
+fetchHealth().then(() => {
+  fetchSessions();
+  fetchDemoStatus();
+});
 connectWS();

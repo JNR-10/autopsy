@@ -84,7 +84,7 @@ autopsy diagnose <session_id> --model auto
 | `autopsy diagnose <id>` | Root-cause analysis |
 | `autopsy tail <id>` | Last N events, or live stream for in-progress sessions |
 | `autopsy export` / `import` | Backup / restore sessions (tar.gz default) |
-| `autopsy replay <id>` | Simulated before/after comparison |
+| `autopsy replay <id>` | Replay (`--live` re-runs agent module) |
 | `autopsy clean --all` | Wipe local session store |
 
 **Optional dashboard** (requires `[server]`):
@@ -483,15 +483,20 @@ Entry: `autopsy.cli.main:cli` (Click group).
 - Session delete uses `LocalFilesystemStore` (v1 dirs + legacy blobs)
 - Version from `autopsy.__version__`
 
-### Demo (`autopsy.demo`)
+### Demo (examples only — not in the core wheel)
 
-Hackathon-only routes **not registered unless `AUTOPSY_DEMO=1`:**
+Hackathon routes live in **`examples/demo_routes.py`** and register only when `AUTOPSY_DEMO=1`:
 
-- `POST /api/demo/fix` — write fix marker for live-loop examples
-- `POST /api/demo/reset` — clear marker
-- `GET /api/demo/status`
+- `autopsy run --demo` or `python examples/serve_with_demo.py`
+- `POST /api/demo/fix`, `/api/demo/reset`, `GET /api/demo/status`
 
-`autopsy run` sets demo mode; `autopsy serve` does not. Example scripts in `examples/` read marker files under `~/.autopsy/fix_applied`.
+Example scripts (`examples/financial_research_pipeline.py`, etc.) read marker files under `~/.autopsy/fix_applied`. Production `autopsy serve` has no demo routes.
+
+### Replay
+
+- **Simulated (default):** `autopsy replay <id>` — comparison table, no agent re-run
+- **Live:** `autopsy replay <id> --live` — re-imports `agent_module_path` from session manifest; requires root `@lens.trace` on that module
+- Dashboard: enable **Live replay** on the diagnose panel (sends `live: true`)
 
 ---
 

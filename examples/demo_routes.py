@@ -1,4 +1,11 @@
-"""Hackathon demo routes — only registered when AUTOPSY_DEMO=1."""
+"""Hackathon demo routes — not part of the autopsy core package.
+
+Register on a FastAPI app when running examples locally:
+
+    AUTOPSY_DEMO=1 python examples/serve_with_demo.py
+
+Or use: autopsy run --demo (loads this module from the repo checkout).
+"""
 from __future__ import annotations
 
 import logging
@@ -7,7 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-logger = logging.getLogger("autopsy.demo")
+logger = logging.getLogger("autopsy.examples.demo")
 
 
 def fix_marker_paths() -> list[Path]:
@@ -17,7 +24,6 @@ def fix_marker_paths() -> list[Path]:
 
 
 def clear_fix_markers() -> None:
-    """Remove stale fix markers so demos start in the broken state."""
     for path in fix_marker_paths():
         try:
             if path.exists():
@@ -41,8 +47,6 @@ def write_fix_markers() -> list[str]:
 
 
 def register_demo_routes(app: FastAPI, ws_manager) -> None:
-    """Attach demo-only API routes to the dashboard server."""
-
     @app.post("/api/demo/fix")
     async def demo_apply_fix() -> JSONResponse:
         markers_written = write_fix_markers()

@@ -1,4 +1,4 @@
-"""Demo routes are gated behind AUTOPSY_DEMO=1."""
+"""Demo routes load from examples/ when AUTOPSY_DEMO=1 (not in core package)."""
 from __future__ import annotations
 
 import httpx
@@ -23,6 +23,8 @@ async def test_demo_routes_enabled_when_flag_set(monkeypatch):
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/health")
+        assert r.json()["demo_enabled"] is True
         r = await c.get("/api/demo/status")
     assert r.status_code == 200
     assert r.json()["fix_applied"] is False

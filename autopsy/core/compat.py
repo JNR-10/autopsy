@@ -21,6 +21,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .bundle_index import (
+    build_legacy_dag_edges,
+    build_legacy_node_index,
+    legacy_input_query,
+)
 from .errors import UnknownSchemaVersionError
 
 logger = logging.getLogger("autopsy.compat")
@@ -49,16 +54,23 @@ def read_v0_bundle(path: Path) -> dict[str, Any] | None:
         return None
     if not isinstance(data, dict):
         return None
+    events = list(data.get("events", []) or [])
+    node_index = dict(data.get("node_index", {}) or {})
+    if not node_index and events:
+        node_index = build_legacy_node_index(events)
+    dag_edges = list(data.get("dag_edges", []) or [])
+    if not dag_edges and events:
+        dag_edges = build_legacy_dag_edges(events)
     bundle: dict[str, Any] = {
         "session_id": data.get("session_id", ""),
         "created_at": float(data.get("created_at", 0.0)),
         "agent_name": data.get("agent_name", ""),
-        "input_query": data.get("input_query", ""),
+        "input_query": data.get("input_query", "") or legacy_input_query(events),
         "agent_module_path": data.get("agent_module_path", ""),
         "agent_fn_name": data.get("agent_fn_name", ""),
-        "events": list(data.get("events", []) or []),
-        "dag_edges": list(data.get("dag_edges", []) or []),
-        "node_index": dict(data.get("node_index", {}) or {}),
+        "events": events,
+        "dag_edges": dag_edges,
+        "node_index": node_index,
         "replay_checkpoints": dict(data.get("replay_checkpoints", {}) or {}),
         "summary": dict(data.get("summary", {}) or {}),
     }
@@ -381,18 +393,24 @@ def read_v1_bundle(session_dir: Path) -> dict[str, Any] | None:
         int(e.get("total_tokens") or 0) for e in legacy_events
         if e.get("event_type") == "llm_response"
     )
+    extra = manifest.get("extra") or {}
+    if not isinstance(extra, dict):
+        extra = {}
+    node_index = build_legacy_node_index(legacy_events)
+    if not node_index and isinstance(manifest.get("node_index"), dict):
+        node_index = manifest["node_index"]
 
     return {
         "session_id": manifest.get("session_id", ""),
         "created_at": manifest.get("start_time_ns", 0) / 1e9,
         "agent_name": manifest.get("agent_name", ""),
-        "input_query": "",
-        "agent_module_path": "",
-        "agent_fn_name": "",
+        "input_query": extra.get("input_query") or legacy_input_query(legacy_events),
+        "agent_module_path": extra.get("agent_module_path", ""),
+        "agent_fn_name": extra.get("agent_fn_name", ""),
         "events": legacy_events,
-        "dag_edges": [],
-        "node_index": {},
-        "replay_checkpoints": {},
+        "dag_edges": build_legacy_dag_edges(legacy_events),
+        "node_index": node_index,
+        "replay_checkpoints": extra.get("replay_checkpoints") or {},
         "summary": {
             "status": summary_status,
             "error_count": error_count,

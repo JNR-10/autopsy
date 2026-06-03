@@ -14,6 +14,8 @@ const state = {
   diagnosis: null,
   diagnosisLoading: false,
   replayResult: null,
+  liveReplay: false,
+  demoEnabled: false,
   ws: null,
   wsReconnectAttempts: 0,
   activeTab: "overview",
@@ -150,8 +152,9 @@ async function fetchBundle(sessionId) {
     const r = await fetch(`/api/sessions/${sessionId}`);
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
-    state.bundleCache[sessionId] = data;
-    return data;
+    state.bundleCache[sessionId] = typeof normalizeBundle === "function"
+      ? normalizeBundle(data) : data;
+    return state.bundleCache[sessionId];
   } catch (e) {
     toast(`Failed to load session: ${e.message}`, "err");
     return null;
