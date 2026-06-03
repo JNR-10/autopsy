@@ -10,7 +10,11 @@ class UnhandledExceptionDetector:
     def evaluate(self, events: list[BaseEvent], *, outcome: str) -> DetectorVerdictEvent | None:
         if outcome != "ok":
             return None
-        errors = [ev for ev in events if isinstance(ev, ErrorEvent)]
+        errors = [
+            ev for ev in events
+            if isinstance(ev, ErrorEvent)
+            and not ev.attributes.get("handled")
+        ]
         if not errors:
             return None
         first = errors[0]

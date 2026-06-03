@@ -13,8 +13,13 @@ class OrphanToolCallDetector:
     name = "orphan_tool_call"
 
     def evaluate(self, events: list[BaseEvent], *, outcome: str) -> DetectorVerdictEvent | None:
-        starts = sum(1 for ev in events if isinstance(ev, ToolCallStartEvent))
-        ends = sum(1 for ev in events if isinstance(ev, ToolCallEndEvent))
-        if starts > ends:
-            return fail(self.name, f"tool starts ({starts}) exceed tool ends ({ends})")
+        pending = 0
+        for ev in events:
+            if isinstance(ev, ToolCallStartEvent):
+                pending += 1
+            elif isinstance(ev, ToolCallEndEvent):
+                if pending > 0:
+                    pending -= 1
+        if pending > 0:
+            return fail(self.name, f"{pending} tool call(s) started without matching end")
         return None
