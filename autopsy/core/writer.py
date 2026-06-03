@@ -183,6 +183,14 @@ class Writer:
         with self._lock:
             return list(self._per_session_buffer_for_test.get(session_id, []))
 
+    def snapshot_events_for_detectors(self, session_id: str) -> list[BaseEvent]:
+        """In-flight writer buffer for a session (not yet spilled or after partial spill)."""
+        with self._lock:
+            state = self._sessions.get(session_id)
+            if state is None:
+                return []
+            return list(state.buffer)
+
     def _run(self) -> None:
         interval_s = self.config.flush_interval_ms / 1000.0
         batch_size = self.config.flush_batch_size

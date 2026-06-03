@@ -44,8 +44,8 @@ class LensConfig:
         default_factory=lambda: list(DEFAULT_ENABLED_DETECTORS),
     )
     promote_on_warn: bool = False
-    max_capture_buffer_events: int = 256
-    max_capture_buffer_bytes: int = 2_097_152
+    max_capture_buffer_events: int = 1024
+    max_capture_buffer_bytes: int = 8_388_608
     tool_loop_threshold: int = 5
     max_tool_calls: int = 50
     latency_threshold_ms: int = 30_000
@@ -79,6 +79,17 @@ def _parse_bool(raw: str, default: bool) -> bool:
 def load_config_from_env(base: LensConfig | None = None) -> LensConfig:
     """Apply AUTOPSY_* env vars on top of `base` (or a fresh default)."""
     c = base or LensConfig()
+    if "AUTOPSY_DETECTOR_PROFILE" in os.environ:
+        from autopsy.detectors.profiles import apply_profile_to_lens_config, get_profile
+
+        prof = get_profile(os.environ["AUTOPSY_DETECTOR_PROFILE"])
+        if prof is not None:
+            apply_profile_to_lens_config(c, prof)
+        else:
+            logger.warning(
+                "autopsy: unknown AUTOPSY_DETECTOR_PROFILE=%r (strict|balanced|lenient)",
+                os.environ["AUTOPSY_DETECTOR_PROFILE"],
+            )
     if "AUTOPSY_SAMPLE" in os.environ:
         c.default_sample = _parse_sample(os.environ["AUTOPSY_SAMPLE"])
     if "AUTOPSY_LOG_FINALIZATION" in os.environ:

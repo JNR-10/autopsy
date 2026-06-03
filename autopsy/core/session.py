@@ -115,6 +115,24 @@ class Session:
     def capture_events(self) -> list[BaseEvent]:
         return list(self._capture)
 
+    def events_for_detectors(self) -> list[BaseEvent]:
+        """Merge capture buffer, writer in-flight buffer, and any on-disk tail."""
+        from pathlib import Path
+
+        from autopsy.core.compat import load_v1_base_events
+
+        seen: dict[str, BaseEvent] = {ev.event_id: ev for ev in self._capture}
+        w = self.writer
+        if w is not None:
+            for ev in w.snapshot_events_for_detectors(self.session_id):
+                seen.setdefault(ev.event_id, ev)
+        root = self._config.session_dir or _pick_default_root()
+        session_dir = Path(root) / "sessions" / self.session_id
+        if session_dir.is_dir():
+            for ev in load_v1_base_events(session_dir):
+                seen.setdefault(ev.event_id, ev)
+        return sorted(seen.values(), key=lambda e: e.timestamp_ns)
+
     def _append_capture(self, ev: BaseEvent) -> None:
         self._capture.append(ev)
         try:
@@ -227,7 +245,7 @@ class Session:
                     self._config.enabled_detectors = list(self._detectors)
                 try:
                     verdicts = run_detectors(
-                        events=self.capture_events(),
+                        events=self.events_for_detectors(),
                         outcome=outcome,
                         session_id=self.session_id,
                         trace_id=self.session_id,
@@ -238,18 +256,24 @@ class Session:
                     if saved is not None:
                         self._config.enabled_detectors = saved
             fails = [v for v in verdicts if v.verdict == "fail"]
+            warns = [v for v in verdicts if v.verdict == "warn"]
+            promote = bool(fails) or (
+                bool(warns) and self._config.promote_on_warn
+            )
             if fails:
                 outcome = "error"
                 error_type = error_type or f"detector:{fails[0].detector_name}"
+            elif warns and self._config.promote_on_warn:
+                error_type = error_type or f"detector_warn:{warns[0].detector_name}"
 
-            should_finalize = bool(fails) or self.writer is not None or self._must_keep()
+            should_finalize = promote or self.writer is not None or self._must_keep()
             if should_finalize:
-                if fails:
-                    w = self.writer
+                w = self.writer
+                if promote:
                     if w is None:
                         w = self._activate_writer()
-                        for ev in self._capture:
-                            w.enqueue(ev)
+                    for ev in self._capture:
+                        w.enqueue(ev)
                     for v in verdicts:
                         w.enqueue(v)
                 w = self.writer
